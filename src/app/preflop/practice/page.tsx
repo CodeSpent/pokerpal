@@ -156,7 +156,7 @@ export default function PracticePage() {
       </div>
 
       {/* Stats Bar */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Card className="p-4 text-center">
           <div className="text-2xl font-bold">{stats.total}</div>
           <div className="text-xs text-foreground-muted">Total</div>

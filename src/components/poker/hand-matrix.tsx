@@ -13,7 +13,7 @@ interface HandMatrixProps {
   colorMode?: "binary" | "action";
   handActions?: Record<string, "fold" | "call" | "raise">;
   disabled?: boolean;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   showLabels?: boolean;
   className?: string;
 }
@@ -98,7 +98,7 @@ export function HandMatrix({
     return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
   }, []);
 
-  const gapClass = size === "sm" ? "gap-0.5" : size === "md" ? "gap-1" : "gap-1.5";
+  const gapClass = size === "xs" ? "gap-px" : size === "sm" ? "gap-0.5" : size === "md" ? "gap-1" : "gap-1.5";
 
   return (
     <div
@@ -112,13 +112,13 @@ export function HandMatrix({
       {/* Column labels */}
       {showLabels && (
         <div className={cn("flex mb-1", gapClass)}>
-          <div className={cn(size === "sm" ? "w-6" : size === "md" ? "w-8" : "w-10")} />
+          <div className={cn(size === "xs" ? "w-5" : size === "sm" ? "w-6" : size === "md" ? "w-8" : "w-10")} />
           {RANKS.map((rank) => (
             <div
               key={rank}
               className={cn(
                 "flex items-center justify-center text-xs text-foreground-muted font-medium",
-                size === "sm" ? "w-6" : size === "md" ? "w-8" : "w-10"
+                size === "xs" ? "w-5" : size === "sm" ? "w-6" : size === "md" ? "w-8" : "w-10"
               )}
             >
               {rank}
@@ -136,7 +136,7 @@ export function HandMatrix({
               <div
                 className={cn(
                   "flex items-center justify-center text-xs text-foreground-muted font-medium",
-                  size === "sm" ? "w-6" : size === "md" ? "w-8" : "w-10"
+                  size === "xs" ? "w-5" : size === "sm" ? "w-6" : size === "md" ? "w-8" : "w-10"
                 )}
               >
                 {rowRank}

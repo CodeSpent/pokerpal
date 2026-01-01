@@ -9,6 +9,7 @@ import { HandMatrix } from "@/components/poker/hand-matrix";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Save, Trash2, RotateCcw } from "lucide-react";
+import { useResponsiveMatrixSize } from "@/hooks/useResponsiveMatrixSize";
 
 interface PageProps {
   params: Promise<{ rangeId: string }>;
@@ -40,6 +41,7 @@ export default function RangeEditorPage({ params }: PageProps) {
   );
   const [position, setPosition] = useState<Position | undefined>(range?.position);
   const [hasChanges, setHasChanges] = useState(false);
+  const matrixSize = useResponsiveMatrixSize();
 
   // Sync with store when range changes
   useEffect(() => {
@@ -155,7 +157,7 @@ export default function RangeEditorPage({ params }: PageProps) {
             <HandMatrix
               selectedHands={selectedHands}
               onHandsChange={setSelectedHands}
-              size="md"
+              size={matrixSize}
               showLabels={true}
             />
           </CardContent>

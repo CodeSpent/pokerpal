@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, ArrowRight, Target } from "lucide-react";
+import { useResponsiveMatrixSize } from "@/hooks/useResponsiveMatrixSize";
 
 interface PageProps {
   params: Promise<{ position: string }>;
@@ -140,6 +141,7 @@ export default function PositionPage({ params }: PageProps) {
   }
 
   const [preset, setPreset] = useState<RangePreset>("standard");
+  const matrixSize = useResponsiveMatrixSize();
   const ranges = getRangesByPreset(preset);
   const range = ranges[position];
   const content = POSITION_CONTENT[position];
@@ -219,7 +221,7 @@ export default function PositionPage({ params }: PageProps) {
               <HandMatrix
                 selectedHands={selectedHands}
                 disabled={true}
-                size="md"
+                size={matrixSize}
                 showLabels={true}
               />
             )}

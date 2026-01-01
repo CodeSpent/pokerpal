@@ -9,10 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Info } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useResponsiveMatrixSize } from "@/hooks/useResponsiveMatrixSize";
 
 export default function PushFoldPage() {
   const [stackSize, setStackSize] = useState<number>(10);
   const [position, setPosition] = useState<Position>("BTN");
+  const matrixSize = useResponsiveMatrixSize();
 
   const pushRange = useMemo(() => {
     return new Set(getPushRange(stackSize, position));
@@ -114,7 +116,7 @@ export default function PushFoldPage() {
               <HandMatrix
                 selectedHands={pushRange}
                 disabled={true}
-                size="md"
+                size={matrixSize}
                 showLabels={true}
               />
             </CardContent>
