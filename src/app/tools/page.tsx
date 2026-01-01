@@ -29,7 +29,7 @@ const tools = [
     description: "Independent Chip Model calculations for tournament decisions",
     href: "/tools/icm",
     icon: TrendingUp,
-    available: false,
+    available: true,
     color: "text-amber-500",
     bgColor: "bg-amber-500/10",
   },
