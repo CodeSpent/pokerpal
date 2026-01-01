@@ -40,12 +40,15 @@ export default function Home() {
   return (
     <div className="space-y-12">
       {/* Hero Section */}
-      <section className="text-center space-y-4 py-12">
-        <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-          Master Texas Hold&apos;em
-        </h1>
+      <section className="text-center space-y-6 py-12">
+        <div className="flex flex-col items-center">
+          <span className="text-sm font-medium tracking-[0.3em] text-emerald-400 uppercase mb-1">LetsPlay</span>
+          <h1 className="text-5xl md:text-7xl font-black tracking-tight text-white">
+            POKER
+          </h1>
+        </div>
         <p className="text-lg text-foreground-muted max-w-2xl mx-auto">
-          Improve your poker game with preflop charts, range analysis, scenario training, and math tools.
+          Master Texas Hold&apos;em with preflop charts, range analysis, scenario training, and math tools.
           From beginner fundamentals to advanced strategy.
         </p>
       </section>

@@ -9,8 +9,14 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "PokerPal - Texas Hold'em Training",
+  title: "LetsPlay Poker - Texas Hold'em Training",
   description: "Master Texas Hold'em with preflop charts, range analysis, and scenario training",
+  metadataBase: new URL("https://letsplay.poker"),
+  openGraph: {
+    title: "LetsPlay Poker",
+    description: "Master Texas Hold'em with preflop charts, range analysis, and scenario training",
+    siteName: "LetsPlay Poker",
+  },
 };
 
 export default function RootLayout({

@@ -22,11 +22,20 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b border-zinc-800 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <nav className="container mx-auto flex h-16 items-center justify-between px-4">
         {/* Logo */}
-        <Link href="/" className="flex items-center space-x-2">
-          <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center">
-            <span className="text-white font-bold text-lg">P</span>
+        <Link href="/" className="flex items-center gap-3">
+          <div className="relative w-10 h-10">
+            {/* Poker chip */}
+            <div className="absolute inset-0 rounded-full bg-emerald-600 flex items-center justify-center">
+              <span className="text-white font-black text-lg">P</span>
+            </div>
+            {/* Chip notches */}
+            <div className="absolute inset-0 rounded-full border-[3px] border-dashed border-emerald-400/60" />
+            <div className="absolute inset-[3px] rounded-full border-2 border-emerald-300/30" />
           </div>
-          <span className="font-semibold text-lg hidden sm:block">PokerPal</span>
+          <div className="hidden sm:flex flex-col leading-none">
+            <span className="text-[10px] font-medium tracking-widest text-emerald-400 uppercase">LetsPlay</span>
+            <span className="text-xl font-black tracking-tight text-white">POKER</span>
+          </div>
         </Link>
 
         {/* Desktop Navigation */}

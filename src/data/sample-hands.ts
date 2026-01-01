@@ -1,0 +1,197 @@
+import { ParsedHand } from "@/types/hand-history";
+
+export const SAMPLE_HANDS: ParsedHand[] = [
+  {
+    id: "sample-001",
+    source: "manual",
+    timestamp: Date.now(),
+    gameType: "cash",
+    stakes: "$0.50/$1.00",
+    blinds: { sb: 0.5, bb: 1 },
+    tableName: "Demo Table",
+    players: [
+      { name: "Hero", position: "CO", stack: 100, cards: ["As", "Kh"], isHero: true },
+      { name: "Villain1", position: "BTN", stack: 120 },
+      { name: "Villain2", position: "SB", stack: 95 },
+      { name: "Villain3", position: "BB", stack: 100 },
+      { name: "Villain4", position: "UTG", stack: 85 },
+      { name: "Villain5", position: "HJ", stack: 110 },
+    ],
+    heroName: "Hero",
+    buttonPosition: "BTN",
+    streets: [
+      {
+        name: "preflop",
+        actions: [
+          { player: "Villain4", position: "UTG", action: "fold" },
+          { player: "Villain5", position: "HJ", action: "fold" },
+          { player: "Hero", position: "CO", action: "raise", amount: 3 },
+          { player: "Villain1", position: "BTN", action: "call", amount: 3 },
+          { player: "Villain2", position: "SB", action: "fold" },
+          { player: "Villain3", position: "BB", action: "call", amount: 2 },
+        ],
+        pot: 1.5,
+      },
+      {
+        name: "flop",
+        cards: ["Kd", "7c", "2s"],
+        actions: [
+          { player: "Villain3", position: "BB", action: "check" },
+          { player: "Hero", position: "CO", action: "raise", amount: 6 },
+          { player: "Villain1", position: "BTN", action: "fold" },
+          { player: "Villain3", position: "BB", action: "call", amount: 6 },
+        ],
+        pot: 9.5,
+      },
+      {
+        name: "turn",
+        cards: ["5h"],
+        actions: [
+          { player: "Villain3", position: "BB", action: "check" },
+          { player: "Hero", position: "CO", action: "raise", amount: 15 },
+          { player: "Villain3", position: "BB", action: "call", amount: 15 },
+        ],
+        pot: 21.5,
+      },
+      {
+        name: "river",
+        cards: ["3d"],
+        actions: [
+          { player: "Villain3", position: "BB", action: "check" },
+          { player: "Hero", position: "CO", action: "raise", amount: 35 },
+          { player: "Villain3", position: "BB", action: "fold" },
+        ],
+        pot: 51.5,
+      },
+    ],
+    board: ["Kd", "7c", "2s", "5h", "3d"],
+    winners: [{ player: "Hero", amount: 51.5 }],
+    showdown: false,
+    potSize: 51.5,
+  },
+  {
+    id: "sample-002",
+    source: "manual",
+    timestamp: Date.now() - 86400000,
+    gameType: "tournament",
+    stakes: "100/200",
+    blinds: { sb: 100, bb: 200, ante: 25 },
+    tableName: "MTT Final Table",
+    players: [
+      { name: "Hero", position: "BTN", stack: 25, cards: ["Qh", "Qs"], isHero: true },
+      { name: "ChipLeader", position: "SB", stack: 80 },
+      { name: "ShortStack", position: "BB", stack: 12, cards: ["Ac", "7d"] },
+      { name: "Player4", position: "UTG", stack: 35 },
+      { name: "Player5", position: "HJ", stack: 28 },
+      { name: "Player6", position: "CO", stack: 42 },
+    ],
+    heroName: "Hero",
+    buttonPosition: "BTN",
+    streets: [
+      {
+        name: "preflop",
+        actions: [
+          { player: "Player4", position: "UTG", action: "fold" },
+          { player: "Player5", position: "HJ", action: "fold" },
+          { player: "Player6", position: "CO", action: "fold" },
+          { player: "Hero", position: "BTN", action: "raise", amount: 4.5 },
+          { player: "ChipLeader", position: "SB", action: "fold" },
+          { player: "ShortStack", position: "BB", action: "all-in", amount: 12, isAllIn: true },
+          { player: "Hero", position: "BTN", action: "call", amount: 7.5 },
+        ],
+        pot: 4.5,
+      },
+      {
+        name: "flop",
+        cards: ["Jc", "8s", "3h"],
+        actions: [],
+        pot: 25.5,
+      },
+      {
+        name: "turn",
+        cards: ["2d"],
+        actions: [],
+        pot: 25.5,
+      },
+      {
+        name: "river",
+        cards: ["Ks"],
+        actions: [],
+        pot: 25.5,
+      },
+    ],
+    board: ["Jc", "8s", "3h", "2d", "Ks"],
+    winners: [{ player: "Hero", amount: 25.5, hand: "Pair of Queens" }],
+    showdown: true,
+    potSize: 25.5,
+  },
+  {
+    id: "sample-003",
+    source: "manual",
+    timestamp: Date.now() - 172800000,
+    gameType: "cash",
+    stakes: "$1/$2",
+    blinds: { sb: 1, bb: 2 },
+    tableName: "Bluff Spot",
+    players: [
+      { name: "Hero", position: "SB", stack: 200, cards: ["9c", "8c"], isHero: true },
+      { name: "Villain", position: "BB", stack: 180, cards: ["Ah", "Jh"] },
+      { name: "Player3", position: "UTG", stack: 150 },
+      { name: "Player4", position: "HJ", stack: 220 },
+      { name: "Player5", position: "CO", stack: 175 },
+      { name: "Player6", position: "BTN", stack: 195 },
+    ],
+    heroName: "Hero",
+    buttonPosition: "BTN",
+    streets: [
+      {
+        name: "preflop",
+        actions: [
+          { player: "Player3", position: "UTG", action: "fold" },
+          { player: "Player4", position: "HJ", action: "fold" },
+          { player: "Player5", position: "CO", action: "fold" },
+          { player: "Player6", position: "BTN", action: "fold" },
+          { player: "Hero", position: "SB", action: "raise", amount: 6 },
+          { player: "Villain", position: "BB", action: "call", amount: 4 },
+        ],
+        pot: 3,
+      },
+      {
+        name: "flop",
+        cards: ["Tc", "7d", "2c"],
+        actions: [
+          { player: "Hero", position: "SB", action: "raise", amount: 8 },
+          { player: "Villain", position: "BB", action: "call", amount: 8 },
+        ],
+        pot: 12,
+      },
+      {
+        name: "turn",
+        cards: ["Ks"],
+        actions: [
+          { player: "Hero", position: "SB", action: "raise", amount: 22 },
+          { player: "Villain", position: "BB", action: "call", amount: 22 },
+        ],
+        pot: 28,
+      },
+      {
+        name: "river",
+        cards: ["Jc"],
+        actions: [
+          { player: "Hero", position: "SB", action: "raise", amount: 65 },
+          { player: "Villain", position: "BB", action: "fold" },
+        ],
+        pot: 72,
+      },
+    ],
+    board: ["Tc", "7d", "2c", "Ks", "Jc"],
+    winners: [{ player: "Hero", amount: 72 }],
+    showdown: false,
+    potSize: 72,
+    notes: "Hero completes flush on river and bets big, getting fold from top pair.",
+  },
+];
+
+export function getSampleHand(id: string): ParsedHand | undefined {
+  return SAMPLE_HANDS.find((h) => h.id === id);
+}
