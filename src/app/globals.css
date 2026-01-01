@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 9 9 11;
+    --background-secondary: 24 24 27;
+    --background-tertiary: 39 39 42;
+    --foreground: 250 250 250;
+    --foreground-muted: 161 161 170;
+    --accent-primary: 16 185 129;
+    --accent-secondary: 99 102 241;
+    --action-fold: 239 68 68;
+    --action-call: 59 130 246;
+    --action-raise: 34 197 94;
+  }
+
+  * {
+    @apply border-zinc-800;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
