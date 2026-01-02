@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { ensurePlayer } from '@/lib/poker-engine-v2';
+import { playerRepo } from '@/lib/db/repositories';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -41,21 +41,14 @@ export async function POST(request: Request) {
     }
 
     // Create or update player in database
-    const result = ensurePlayer(playerId, trimmedName);
-
-    if (!result.success) {
-      return NextResponse.json(
-        { error: result.error || 'Failed to create player' },
-        { status: 500 }
-      );
-    }
+    const playerData = await playerRepo.ensurePlayer(playerId, trimmedName);
 
     // Return player object matching the old format for compatibility
     const player = {
-      id: result.data!.id,
-      displayName: result.data!.name,
+      id: playerData.id,
+      displayName: playerData.name,
       chipBalance: 10000, // Default starting chips
-      createdAt: result.data!.created_at,
+      createdAt: playerData.createdAt,
     };
 
     return NextResponse.json({ player });

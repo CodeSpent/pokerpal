@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { playerRepo, tournamentRepo } from '@/lib/db/repositories';
 import {
-  getTournament,
-  registerPlayer,
-  unregisterPlayer,
+  registerPlayerForTournament,
+  unregisterPlayerFromTournament,
   startTournament,
-  ensurePlayer,
-  getDatabase,
-} from '@/lib/poker-engine-v2';
+} from '@/lib/game/tournament-service';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -34,27 +32,12 @@ export async function POST(
     const body = await request.json();
     const { displayName } = body;
 
-    // Check if tournament exists
-    const tournament = getTournament(tournamentId);
-    if (!tournament) {
-      return NextResponse.json(
-        { error: 'Tournament not found' },
-        { status: 404 }
-      );
-    }
-
     // Ensure player exists
     const playerName = displayName || 'Player';
-    const playerResult = ensurePlayer(playerId, playerName);
-    if (!playerResult.success) {
-      return NextResponse.json(
-        { error: 'Failed to create player' },
-        { status: 500 }
-      );
-    }
+    await playerRepo.ensurePlayer(playerId, playerName);
 
     // Register for tournament
-    const result = registerPlayer(tournamentId, playerId);
+    const result = await registerPlayerForTournament(tournamentId, playerId);
 
     if (!result.success) {
       return NextResponse.json(
@@ -64,22 +47,25 @@ export async function POST(
     }
 
     // Check if tournament should auto-start (SNG style)
-    if (result.data!.shouldAutoStart) {
-      const startResult = startTournament(tournamentId);
+    if (result.data.shouldAutoStart) {
+      const startResult = await startTournament(tournamentId);
 
       if (startResult.success) {
         return NextResponse.json({
           registered: true,
           tournamentStarted: true,
-          tables: startResult.data!.tables.map((t) => t.id),
+          tables: startResult.data.tables.map((t) => t.id),
         });
       }
     }
 
+    // Get tournament for max players
+    const tournament = await tournamentRepo.getTournament(tournamentId);
+
     return NextResponse.json({
       registered: true,
-      registeredCount: result.data!.playerCount,
-      maxPlayers: tournament.max_players,
+      registeredCount: result.data.playerCount,
+      maxPlayers: tournament?.maxPlayers ?? 9,
     });
   } catch (error) {
     console.error('Error registering for tournament:', error);
@@ -110,7 +96,7 @@ export async function DELETE(
     }
 
     const { tournamentId } = await params;
-    const result = unregisterPlayer(tournamentId, playerId);
+    const result = await unregisterPlayerFromTournament(tournamentId, playerId);
 
     if (!result.success) {
       return NextResponse.json(

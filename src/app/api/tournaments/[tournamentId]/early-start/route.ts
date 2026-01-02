@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import {
-  getTournament,
-  startTournament,
-  getRegistrationCount,
-  getDatabase,
-  generateId,
-  now,
-} from '@/lib/poker-engine-v2';
+import { tournamentRepo } from '@/lib/db/repositories';
+import { voteForEarlyStart, startTournament } from '@/lib/game/tournament-service';
+import { getDb } from '@/lib/db';
+import { earlyStartVotes } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -34,8 +31,7 @@ export async function POST(
     const body = await request.json();
     const { action } = body;
 
-    const db = getDatabase();
-    const tournament = getTournament(tournamentId);
+    const tournament = await tournamentRepo.getTournament(tournamentId);
 
     if (!tournament) {
       return NextResponse.json(
@@ -46,14 +42,14 @@ export async function POST(
 
     if (action === 'initiate') {
       // Host initiates a vote
-      if (tournament.creator_id !== playerId) {
+      if (tournament.creatorId !== playerId) {
         return NextResponse.json(
           { error: 'Only the host can initiate early start' },
           { status: 403 }
         );
       }
 
-      const playerCount = getRegistrationCount(tournamentId);
+      const playerCount = await tournamentRepo.getRegistrationCount(tournamentId);
       if (playerCount < 2) {
         return NextResponse.json(
           { error: 'Need at least 2 players to start' },
@@ -62,85 +58,71 @@ export async function POST(
       }
 
       // Add host's vote
-      try {
-        db.prepare(`
-          INSERT INTO early_start_votes (id, tournament_id, player_id, voted_at)
-          VALUES (?, ?, ?, ?)
-        `).run(generateId(), tournamentId, playerId, now());
-      } catch (err) {
-        // Already voted, ignore
-      }
+      await tournamentRepo.addEarlyStartVote(tournamentId, playerId);
 
-      const votes = db.prepare(
-        'SELECT player_id FROM early_start_votes WHERE tournament_id = ?'
-      ).all(tournamentId) as { player_id: string }[];
+      const votes = await tournamentRepo.getEarlyStartVotes(tournamentId);
 
       return NextResponse.json({
         success: true,
         earlyStart: {
           isVotingActive: true,
-          votes: votes.map((v) => v.player_id),
+          votes: votes.map((v) => v.playerId),
         },
       });
     }
 
     if (action === 'vote') {
       // Player votes to start early
-      try {
-        db.prepare(`
-          INSERT INTO early_start_votes (id, tournament_id, player_id, voted_at)
-          VALUES (?, ?, ?, ?)
-        `).run(generateId(), tournamentId, playerId, now());
-      } catch (err) {
+      const result = await voteForEarlyStart(tournamentId, playerId);
+
+      if (!result.success) {
         return NextResponse.json(
-          { error: 'Already voted' },
+          { error: result.error },
           { status: 400 }
         );
       }
 
-      const votes = db.prepare(
-        'SELECT player_id FROM early_start_votes WHERE tournament_id = ?'
-      ).all(tournamentId) as { player_id: string }[];
-
-      const playerCount = getRegistrationCount(tournamentId);
-
       // Check if everyone has voted
-      if (votes.length >= playerCount) {
-        const startResult = startTournament(tournamentId);
+      if (result.data.shouldStart) {
+        const startResult = await startTournament(tournamentId);
 
         if (startResult.success) {
           // Clear votes
-          db.prepare('DELETE FROM early_start_votes WHERE tournament_id = ?').run(tournamentId);
+          const db = getDb();
+          await db.delete(earlyStartVotes).where(eq(earlyStartVotes.tournamentId, tournamentId));
 
           return NextResponse.json({
             success: true,
             tournamentStarted: true,
-            tables: startResult.data!.tables.map((t) => t.id),
+            tables: startResult.data.tables.map((t) => t.id),
           });
         }
       }
+
+      const votes = await tournamentRepo.getEarlyStartVotes(tournamentId);
 
       return NextResponse.json({
         success: true,
         earlyStart: {
           isVotingActive: true,
-          votes: votes.map((v) => v.player_id),
+          votes: votes.map((v) => v.playerId),
         },
-        votesCount: votes.length,
-        totalPlayers: playerCount,
+        votesCount: result.data.voteCount,
+        totalPlayers: result.data.threshold,
       });
     }
 
     if (action === 'cancel') {
       // Host cancels the vote
-      if (tournament.creator_id !== playerId) {
+      if (tournament.creatorId !== playerId) {
         return NextResponse.json(
           { error: 'Only the host can cancel early start' },
           { status: 403 }
         );
       }
 
-      db.prepare('DELETE FROM early_start_votes WHERE tournament_id = ?').run(tournamentId);
+      const db = getDb();
+      await db.delete(earlyStartVotes).where(eq(earlyStartVotes.tournamentId, tournamentId));
 
       return NextResponse.json({
         success: true,
@@ -153,14 +135,14 @@ export async function POST(
 
     if (action === 'force') {
       // Host forces the start
-      if (tournament.creator_id !== playerId) {
+      if (tournament.creatorId !== playerId) {
         return NextResponse.json(
           { error: 'Only the host can force start' },
           { status: 403 }
         );
       }
 
-      const playerCount = getRegistrationCount(tournamentId);
+      const playerCount = await tournamentRepo.getRegistrationCount(tournamentId);
       if (playerCount < 2) {
         return NextResponse.json(
           { error: 'Need at least 2 players to start' },
@@ -168,7 +150,7 @@ export async function POST(
         );
       }
 
-      const startResult = startTournament(tournamentId);
+      const startResult = await startTournament(tournamentId);
 
       if (!startResult.success) {
         return NextResponse.json(
@@ -178,12 +160,13 @@ export async function POST(
       }
 
       // Clear votes
-      db.prepare('DELETE FROM early_start_votes WHERE tournament_id = ?').run(tournamentId);
+      const db = getDb();
+      await db.delete(earlyStartVotes).where(eq(earlyStartVotes.tournamentId, tournamentId));
 
       return NextResponse.json({
         success: true,
         tournamentStarted: true,
-        tables: startResult.data!.tables.map((t) => t.id),
+        tables: startResult.data.tables.map((t) => t.id),
       });
     }
 

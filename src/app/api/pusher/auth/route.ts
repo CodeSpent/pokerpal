@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import Pusher from 'pusher';
-import { getTableWithPlayers } from '@/lib/poker-engine-v2';
+import { tableRepo } from '@/lib/db/repositories';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -50,8 +50,8 @@ export async function POST(request: Request) {
     if (channelName.startsWith('private-table:')) {
       // Private table channel for hole cards - verify player is seated
       const tableId = channelName.replace('private-table:', '');
-      const { players } = getTableWithPlayers(tableId);
-      const isSeated = players.some(p => p.player_id === playerId);
+      const { players } = await tableRepo.getTableWithPlayers(tableId);
+      const isSeated = players.some(p => p.playerId === playerId);
 
       if (!isSeated) {
         return NextResponse.json(
@@ -65,9 +65,7 @@ export async function POST(request: Request) {
       // Presence channel for lobby or tournament
       const presenceData = {
         user_id: playerId,
-        user_info: {
-          // TODO: Include display name from database/localStorage
-        },
+        user_info: {},
       };
 
       const authResponse = pusher.authorizeChannel(

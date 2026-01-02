@@ -1,12 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import {
-  getOpenTournaments,
-  createTournament,
-  ensurePlayer,
-  getRegistrationCount,
-  getDatabase,
-} from '@/lib/poker-engine-v2';
+import { tournamentRepo, playerRepo, eventRepo } from '@/lib/db/repositories';
+import { now } from '@/lib/db/transaction';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -16,19 +11,21 @@ const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
  */
 export async function GET() {
   try {
-    const tournaments = getOpenTournaments();
+    const tournaments = await tournamentRepo.getOpenTournaments();
 
-    const summaries = tournaments.map((t) => ({
-      id: t.id,
-      name: t.name,
-      status: t.status,
-      registeredCount: getRegistrationCount(t.id),
-      maxPlayers: t.max_players,
-      buyIn: 100, // Placeholder
-      startingChips: t.starting_chips,
-      createdAt: t.created_at,
-      isPasswordProtected: false, // TODO: Add password support
-    }));
+    const summaries = await Promise.all(
+      tournaments.map(async (t) => ({
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        registeredCount: await tournamentRepo.getRegistrationCount(t.id),
+        maxPlayers: t.maxPlayers,
+        buyIn: 100, // Placeholder
+        startingChips: t.startingChips,
+        createdAt: t.createdAt,
+        isPasswordProtected: false,
+      }))
+    );
 
     return NextResponse.json({ tournaments: summaries });
   } catch (error) {
@@ -101,32 +98,35 @@ export async function POST(request: Request) {
 
     // Ensure creator player exists
     const playerName = displayName || 'Player';
-    const playerResult = ensurePlayer(playerId, playerName);
-    if (!playerResult.success) {
-      return NextResponse.json(
-        { error: 'Failed to create player' },
-        { status: 500 }
-      );
-    }
+    await playerRepo.ensurePlayer(playerId, playerName);
 
     // Create tournament
-    const result = createTournament({
+    const tournament = await tournamentRepo.createTournament({
       name: name.trim(),
       creatorId: playerId,
       maxPlayers,
       tableSize,
       startingChips,
+      blindStructure: 'standard',
+      blindLevelMinutes: 10,
       turnTimerSeconds,
+      status: 'registering',
+      currentLevel: 1,
+      levelStartedAt: null,
+      playersRemaining: 0,
+      prizePool: 0,
+      startedAt: null,
+      endedAt: null,
     });
 
-    if (!result.success) {
-      return NextResponse.json(
-        { error: result.error || 'Failed to create tournament' },
-        { status: 500 }
-      );
-    }
+    // Auto-register creator
+    await tournamentRepo.registerPlayer(tournament.id, playerId);
 
-    const tournament = result.data!.tournament;
+    // Emit event
+    await eventRepo.emitEvent('tournament', tournament.id, 'TOURNAMENT_CREATED', {
+      tournamentId: tournament.id,
+      creatorId: playerId,
+    }, 1);
 
     return NextResponse.json({
       tournament: {
@@ -134,9 +134,9 @@ export async function POST(request: Request) {
         name: tournament.name,
         status: tournament.status,
         registeredCount: 1, // Creator is auto-registered
-        maxPlayers: tournament.max_players,
-        startingChips: tournament.starting_chips,
-        createdAt: tournament.created_at,
+        maxPlayers: tournament.maxPlayers,
+        startingChips: tournament.startingChips,
+        createdAt: tournament.createdAt,
         isPasswordProtected: false,
       },
     });

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { handlePoll, getTableWithPlayers } from '@/lib/poker-engine-v2';
+import { tableRepo } from '@/lib/db/repositories';
+import { handlePoll } from '@/lib/game/game-service';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -30,7 +31,7 @@ export async function GET(
     const { tableId } = await params;
 
     // Verify table exists and player is seated
-    const { table, players } = getTableWithPlayers(tableId);
+    const { table, players } = await tableRepo.getTableWithPlayers(tableId);
 
     if (!table) {
       return NextResponse.json(
@@ -39,7 +40,7 @@ export async function GET(
       );
     }
 
-    const playerSeat = players.find((p) => p.player_id === playerId);
+    const playerSeat = players.find((p) => p.playerId === playerId);
 
     if (!playerSeat) {
       return NextResponse.json(
@@ -54,7 +55,7 @@ export async function GET(
     const lastEventId = parseInt(url.searchParams.get('lastEventId') || '0', 10);
 
     // Get poll response
-    const pollResponse = handlePoll(tableId, clientVersion, lastEventId);
+    const pollResponse = await handlePoll(tableId, clientVersion, lastEventId);
 
     return NextResponse.json(pollResponse);
   } catch (error) {

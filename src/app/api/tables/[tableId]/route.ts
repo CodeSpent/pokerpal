@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import {
-  getTableWithPlayers,
-  getDatabase,
-} from '@/lib/poker-engine-v2';
+import { tableRepo } from '@/lib/db/repositories';
+import { advanceGameState, getValidActions } from '@/lib/game/game-service';
 import { parseCard } from '@/lib/card-utils';
-import { getValidActions } from '@/lib/poker-engine-v2/state-machine/player-fsm';
-import { advanceGameState } from '@/lib/poker-engine-v2/game/advance-game';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -30,15 +26,14 @@ export async function GET(
     }
 
     const { tableId } = await params;
-    const db = getDatabase();
 
     // Advance game state idempotently
     // This handles: cleanup, timeouts, actor recovery, showdown completion, new hand start
     // All operations are idempotent - safe to call from multiple concurrent pollers
-    const advanceResult = advanceGameState(db, tableId);
+    const advanceResult = await advanceGameState(tableId);
 
     // Get fresh table and player state after any advances
-    const { table, players } = getTableWithPlayers(tableId);
+    const { table, players } = await tableRepo.getTableWithPlayers(tableId);
 
     if (!table) {
       return NextResponse.json(
@@ -48,7 +43,7 @@ export async function GET(
     }
 
     // Find player's seat
-    const playerSeat = players.find((p) => p.player_id === playerId);
+    const playerSeat = players.find((p) => p.playerId === playerId);
 
     if (!playerSeat) {
       return NextResponse.json(
@@ -63,29 +58,29 @@ export async function GET(
     // Build response with hidden hole cards for opponents
     const isShowdown = hand?.phase === 'showdown';
 
-    const sanitizedSeats = players.map((player, index) => {
+    const sanitizedSeats = players.map((player) => {
       // Only show hole cards for the requesting player
       // (or during showdown for all remaining players)
       const showCards =
-        player.player_id === playerId ||
+        player.playerId === playerId ||
         (isShowdown && !['folded', 'sitting_out', 'eliminated'].includes(player.status));
 
       return {
-        index: player.seat_index,
+        index: player.seatIndex,
         player: {
-          id: player.player_id,
+          id: player.playerId,
           displayName: player.name,
-          seatIndex: player.seat_index,
+          seatIndex: player.seatIndex,
           stack: player.stack,
           status: player.status,
-          currentBet: player.current_bet,
+          currentBet: player.currentBet,
           hasActed: player.status === 'acted',
           isAllIn: player.status === 'all_in',
           isSittingOut: player.status === 'sitting_out',
-          holeCards: showCards && player.hole_card_1 && player.hole_card_2
+          holeCards: showCards && player.holeCard1 && player.holeCard2
             ? [
-                parseCard(player.hole_card_1),
-                parseCard(player.hole_card_2),
+                parseCard(player.holeCard1),
+                parseCard(player.holeCard2),
               ]
             : undefined,
         },
@@ -93,80 +88,79 @@ export async function GET(
     });
 
     // Parse community cards
-    const communityCards = hand?.community_cards
-      ? JSON.parse(hand.community_cards).map(parseCard)
+    const communityCards = hand?.communityCards
+      ? JSON.parse(hand.communityCards).map(parseCard)
       : [];
 
     // Build table state matching old format
     const tableState = {
       id: table.id,
-      tournamentId: table.tournament_id,
-      tableNumber: table.table_number,
-      maxSeats: table.max_seats,
+      tournamentId: table.tournamentId,
+      tableNumber: table.tableNumber,
+      maxSeats: table.maxSeats,
       status: table.status,
       phase: hand?.phase || 'waiting',
-      handNumber: hand?.hand_number || 0,
-      dealerSeatIndex: table.dealer_seat,
-      smallBlindSeatIndex: hand?.small_blind_seat ?? null,
-      bigBlindSeatIndex: hand?.big_blind_seat ?? null,
-      currentActorSeatIndex: hand?.current_actor_seat ?? null,
-      smallBlind: table.small_blind,
-      bigBlind: table.big_blind,
+      handNumber: hand?.handNumber || 0,
+      dealerSeatIndex: table.dealerSeat,
+      smallBlindSeatIndex: hand?.smallBlindSeat ?? null,
+      bigBlindSeatIndex: hand?.bigBlindSeat ?? null,
+      currentActorSeatIndex: hand?.currentActorSeat ?? null,
+      smallBlind: table.smallBlind,
+      bigBlind: table.bigBlind,
       ante: table.ante,
       pot: hand?.pot || 0,
-      currentBet: hand?.current_bet || 0,
-      minRaise: hand?.min_raise || table.big_blind,
+      currentBet: hand?.currentBet || 0,
+      minRaise: hand?.minRaise || table.bigBlind,
       communityCards,
       seats: sanitizedSeats,
-      sidePots: [], // TODO: Calculate side pots when all-in situations occur
-      turnExpiresAt: hand?.action_deadline ?? null,
-      turnIsUnlimited: hand?.action_deadline === null || hand?.action_deadline === undefined,
+      sidePots: [],
+      turnExpiresAt: hand?.actionDeadline ?? null,
+      turnIsUnlimited: hand?.actionDeadline === null || hand?.actionDeadline === undefined,
       version: table.version,
     };
 
     // Compute valid actions if it's the hero's turn
     let validActions = null;
-    const isHeroTurn = hand?.current_actor_seat === playerSeat.seat_index;
+    const isHeroTurn = hand?.currentActorSeat === playerSeat.seatIndex;
 
     if (isHeroTurn && hand) {
-      const toCall = Math.max(0, hand.current_bet - playerSeat.current_bet);
+      const toCall = Math.max(0, hand.currentBet - playerSeat.currentBet);
 
-      // Log the inputs to validActions computation
       console.log('[GET /api/tables] validActions inputs:', {
         status: playerSeat.status,
-        currentBet: hand.current_bet,
-        playerBet: playerSeat.current_bet,
+        currentBet: hand.currentBet,
+        playerBet: playerSeat.currentBet,
         playerStack: playerSeat.stack,
-        minRaise: hand.min_raise,
-        bigBlind: table.big_blind,
+        minRaise: hand.minRaise,
+        bigBlind: table.bigBlind,
         toCall,
       });
 
       validActions = getValidActions({
         status: playerSeat.status,
-        currentBet: hand.current_bet,
-        playerBet: playerSeat.current_bet,
+        currentBet: hand.currentBet,
+        playerBet: playerSeat.currentBet,
         playerStack: playerSeat.stack,
-        minRaise: hand.min_raise,
-        bigBlind: table.big_blind,
+        minRaise: hand.minRaise,
+        bigBlind: table.bigBlind,
         canCheck: toCall === 0,
       });
     }
 
     console.log('[GET /api/tables] tableId:', tableId);
-    console.log('[GET /api/tables] currentActorSeatIndex:', hand?.current_actor_seat);
+    console.log('[GET /api/tables] currentActorSeatIndex:', hand?.currentActorSeat);
     console.log('[GET /api/tables] phase:', hand?.phase);
     console.log('[GET /api/tables] playerSeat.status:', playerSeat.status);
     console.log('[GET /api/tables] playerSeat.stack:', playerSeat.stack);
-    console.log('[GET /api/tables] playerSeat.current_bet:', playerSeat.current_bet);
-    console.log('[GET /api/tables] hand.current_bet:', hand?.current_bet);
-    console.log('[GET /api/tables] heroSeatIndex:', playerSeat.seat_index);
+    console.log('[GET /api/tables] playerSeat.currentBet:', playerSeat.currentBet);
+    console.log('[GET /api/tables] hand.currentBet:', hand?.currentBet);
+    console.log('[GET /api/tables] heroSeatIndex:', playerSeat.seatIndex);
     console.log('[GET /api/tables] isHeroTurn:', isHeroTurn);
     console.log('[GET /api/tables] validActions:', validActions);
 
     return NextResponse.json({
       table: tableState,
-      heroSeatIndex: playerSeat.seat_index,
+      heroSeatIndex: playerSeat.seatIndex,
       validActions,
     });
   } catch (error) {
@@ -177,4 +171,3 @@ export async function GET(
     );
   }
 }
-

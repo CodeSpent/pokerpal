@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { playerRepo } from '@/lib/db/repositories';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
 /**
  * GET /api/player/me
- * Get the current player's ID from cookie
+ * Get the current player's data
  */
 export async function GET() {
   try {
@@ -19,10 +20,23 @@ export async function GET() {
       );
     }
 
-    // TODO: In production, fetch full player data from database
-    // For MVP, just return the ID (client fetches rest from localStorage)
+    // Fetch player from database
+    const player = await playerRepo.getPlayer(playerId);
 
-    return NextResponse.json({ playerId });
+    if (!player) {
+      // Player ID exists in cookie but not in database
+      return NextResponse.json({ playerId, player: null });
+    }
+
+    return NextResponse.json({
+      playerId,
+      player: {
+        id: player.id,
+        displayName: player.name,
+        avatar: player.avatar,
+        createdAt: player.createdAt,
+      },
+    });
   } catch (error) {
     console.error('Error getting player:', error);
     return NextResponse.json(
@@ -67,8 +81,8 @@ export async function PUT(request: Request) {
       );
     }
 
-    // TODO: In production, update database
-    // For MVP, just return success (client updates localStorage)
+    // Update player in database
+    await playerRepo.updatePlayerName(playerId, trimmedName);
 
     return NextResponse.json({
       success: true,

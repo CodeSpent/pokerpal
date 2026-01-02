@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server';
-import {
-  getTournament,
-  getRegistrationsWithPlayers,
-  getDatabase,
-} from '@/lib/poker-engine-v2';
+import { tournamentRepo, tableRepo } from '@/lib/db/repositories';
 
 /**
  * GET /api/tournaments/[tournamentId]
@@ -15,7 +11,7 @@ export async function GET(
 ) {
   try {
     const { tournamentId } = await params;
-    const tournament = getTournament(tournamentId);
+    const tournament = await tournamentRepo.getTournament(tournamentId);
 
     if (!tournament) {
       return NextResponse.json(
@@ -25,18 +21,13 @@ export async function GET(
     }
 
     // Get registrations with player details
-    const registrations = getRegistrationsWithPlayers(tournamentId);
+    const registrations = await tournamentRepo.getRegistrationsWithPlayers(tournamentId);
 
     // Get tables for this tournament
-    const db = getDatabase();
-    const tables = db.prepare(
-      'SELECT id FROM tables WHERE tournament_id = ?'
-    ).all(tournamentId) as { id: string }[];
+    const tables = await tableRepo.getTournamentTables(tournamentId);
 
     // Get early start votes
-    const votes = db.prepare(
-      'SELECT player_id FROM early_start_votes WHERE tournament_id = ?'
-    ).all(tournamentId) as { player_id: string }[];
+    const votes = await tournamentRepo.getEarlyStartVotes(tournamentId);
 
     return NextResponse.json({
       tournament: {
@@ -44,22 +35,22 @@ export async function GET(
         name: tournament.name,
         status: tournament.status,
         registeredPlayers: registrations.map((r) => ({
-          id: r.player_id,
-          displayName: r.name,
+          id: r.playerId,
+          displayName: r.player.name,
         })),
-        maxPlayers: tournament.max_players,
-        tableSize: tournament.table_size,
-        startingChips: tournament.starting_chips,
-        currentLevel: tournament.current_level,
+        maxPlayers: tournament.maxPlayers,
+        tableSize: tournament.tableSize,
+        startingChips: tournament.startingChips,
+        currentLevel: tournament.currentLevel,
         tables: tables.map((t) => t.id),
-        playersRemaining: tournament.players_remaining,
-        createdAt: tournament.created_at,
-        startedAt: tournament.started_at,
-        isPasswordProtected: false, // TODO: Add password support
-        creatorId: tournament.creator_id,
+        playersRemaining: tournament.playersRemaining,
+        createdAt: tournament.createdAt,
+        startedAt: tournament.startedAt,
+        isPasswordProtected: false,
+        creatorId: tournament.creatorId,
         earlyStart: {
           isVotingActive: votes.length > 0,
-          votes: votes.map((v) => v.player_id),
+          votes: votes.map((v) => v.playerId),
         },
       },
     });

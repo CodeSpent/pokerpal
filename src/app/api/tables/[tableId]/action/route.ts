@@ -1,13 +1,8 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import Pusher from 'pusher';
-import {
-  submitAction,
-  getTableWithPlayers,
-  getCurrentHand,
-  getValidActions,
-} from '@/lib/poker-engine-v2';
-import type { ActionType } from '@/lib/poker-engine-v2';
+import { tableRepo } from '@/lib/db/repositories';
+import { submitAction, getValidActions, type ActionType } from '@/lib/game/game-service';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -45,7 +40,7 @@ export async function POST(
     const { tableId } = await params;
 
     // Verify table exists and player is seated
-    const { table, players } = getTableWithPlayers(tableId);
+    const { table, players } = await tableRepo.getTableWithPlayers(tableId);
 
     if (!table) {
       return NextResponse.json(
@@ -54,7 +49,7 @@ export async function POST(
       );
     }
 
-    const playerSeat = players.find((p) => p.player_id === playerId);
+    const playerSeat = players.find((p) => p.playerId === playerId);
 
     if (!playerSeat) {
       return NextResponse.json(
@@ -91,7 +86,7 @@ export async function POST(
     const mappedAction = actionMap[action] || action as ActionType;
 
     // Submit action using new engine
-    const result = submitAction({
+    const result = await submitAction({
       tableId,
       playerId,
       action: mappedAction,
@@ -118,7 +113,7 @@ export async function POST(
       type: 'ACTION',  // Must match client's listener
       eventId: `action-${handId}-${handVersion}`,
       record: {
-        seatIndex: playerSeat.seat_index,
+        seatIndex: playerSeat.seatIndex,
         action: mappedAction,
         amount: amount || 0,
         timestamp: Date.now(),
@@ -130,13 +125,13 @@ export async function POST(
       type: 'POT_UPDATED',
       eventId: `pot-${handId}-${handVersion}`,
       pot: actionResult.hand.pot,
-      sidePots: [],  // TODO: Get actual side pots
+      sidePots: [],
     });
 
     if (actionResult.phaseChanged && actionResult.newPhase) {
       // Get community cards for phase change
-      const communityCards = actionResult.hand.community_cards
-        ? JSON.parse(actionResult.hand.community_cards).map((c: string) => ({
+      const communityCards = actionResult.hand.communityCards
+        ? JSON.parse(actionResult.hand.communityCards).map((c: string) => ({
             rank: c[0],
             suit: c[1],
           }))
@@ -152,22 +147,22 @@ export async function POST(
 
     if (actionResult.nextActorSeat !== null) {
       // Use action_deadline from hand (null = unlimited timer)
-      const expiresAt = actionResult.hand.action_deadline ?? null;
+      const expiresAt = actionResult.hand.actionDeadline ?? null;
       const isUnlimited = expiresAt === null;
 
       // Compute validActions for the next actor
       const nextActorPlayer = actionResult.players.find(
-        (p) => p.seat_index === actionResult.nextActorSeat
+        (p) => p.seatIndex === actionResult.nextActorSeat
       );
-      const toCall = Math.max(0, actionResult.hand.current_bet - (nextActorPlayer?.current_bet || 0));
+      const toCall = Math.max(0, actionResult.hand.currentBet - (nextActorPlayer?.currentBet || 0));
       const validActionsForNextActor = nextActorPlayer
         ? getValidActions({
             status: nextActorPlayer.status,
-            currentBet: actionResult.hand.current_bet,
-            playerBet: nextActorPlayer.current_bet,
+            currentBet: actionResult.hand.currentBet,
+            playerBet: nextActorPlayer.currentBet,
             playerStack: nextActorPlayer.stack,
-            minRaise: actionResult.hand.min_raise,
-            bigBlind: table.big_blind,
+            minRaise: actionResult.hand.minRaise,
+            bigBlind: table.bigBlind,
             canCheck: toCall === 0,
           })
         : null;

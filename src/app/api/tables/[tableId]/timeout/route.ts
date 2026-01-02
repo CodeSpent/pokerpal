@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import Pusher from 'pusher';
-import { handleTurnTimeout } from '@/lib/poker-engine-v2/hand/timeout';
-import { getTableWithPlayers, getCurrentHand, getValidActions } from '@/lib/poker-engine-v2';
+import { tableRepo, handRepo } from '@/lib/db/repositories';
+import { handleTurnTimeout, getValidActions } from '@/lib/game/game-service';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -40,8 +40,8 @@ export async function POST(
     const { tableId } = await params;
 
     // Verify player is at this table
-    const { players } = getTableWithPlayers(tableId);
-    const isSeated = players.some(p => p.player_id === playerId);
+    const { table, players } = await tableRepo.getTableWithPlayers(tableId);
+    const isSeated = players.some(p => p.playerId === playerId);
 
     if (!isSeated) {
       return NextResponse.json(
@@ -51,7 +51,7 @@ export async function POST(
     }
 
     // Handle the timeout
-    const result = handleTurnTimeout(tableId);
+    const result = await handleTurnTimeout(tableId);
 
     if (!result.success) {
       // If the turn hasn't expired, no actor, or unlimited timer - just return
@@ -89,32 +89,32 @@ export async function POST(
       });
 
       // Get updated hand state and send turn/phase updates
-      const hand = getCurrentHand(tableId);
-      const { table, players } = getTableWithPlayers(tableId);
-      if (hand && table) {
-        if (hand.current_actor_seat !== null) {
+      const hand = await handRepo.getCurrentHand(tableId);
+      const { table: updatedTable, players: updatedPlayers } = await tableRepo.getTableWithPlayers(tableId);
+      if (hand && updatedTable) {
+        if (hand.currentActorSeat !== null) {
           // Use action_deadline from hand (null = unlimited timer)
-          const expiresAt = hand.action_deadline ?? null;
+          const expiresAt = hand.actionDeadline ?? null;
           const isUnlimited = expiresAt === null;
 
           // Compute validActions for the next actor
-          const nextActorPlayer = players.find(p => p.seat_index === hand.current_actor_seat);
-          const toCall = Math.max(0, hand.current_bet - (nextActorPlayer?.current_bet || 0));
+          const nextActorPlayer = updatedPlayers.find(p => p.seatIndex === hand.currentActorSeat);
+          const toCall = Math.max(0, hand.currentBet - (nextActorPlayer?.currentBet || 0));
           const validActionsForActor = nextActorPlayer
             ? getValidActions({
                 status: nextActorPlayer.status,
-                currentBet: hand.current_bet,
-                playerBet: nextActorPlayer.current_bet,
+                currentBet: hand.currentBet,
+                playerBet: nextActorPlayer.currentBet,
                 playerStack: nextActorPlayer.stack,
-                minRaise: hand.min_raise,
-                bigBlind: table.big_blind,
+                minRaise: hand.minRaise,
+                bigBlind: updatedTable.bigBlind,
                 canCheck: toCall === 0,
               })
             : null;
 
           await pusher.trigger(`table-${tableId}`, 'TURN_STARTED', {
             type: 'TURN_STARTED',
-            seatIndex: hand.current_actor_seat,
+            seatIndex: hand.currentActorSeat,
             expiresAt,
             isUnlimited,
             validActions: validActionsForActor,
