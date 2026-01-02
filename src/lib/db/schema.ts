@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   integer,
+  bigint,
   serial,
   timestamp,
   unique,
@@ -23,7 +24,7 @@ export const players = pgTable('players', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   avatar: text('avatar'),
-  createdAt: integer('created_at').notNull(),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
 });
 
 // =============================================================================
@@ -47,12 +48,12 @@ export const tournaments = pgTable(
     blindLevelMinutes: integer('blind_level_minutes').notNull().default(10),
     turnTimerSeconds: integer('turn_timer_seconds').default(30),
     currentLevel: integer('current_level').notNull().default(1),
-    levelStartedAt: integer('level_started_at'),
+    levelStartedAt: bigint('level_started_at', { mode: 'number' }),
     playersRemaining: integer('players_remaining').notNull().default(0),
     prizePool: integer('prize_pool').notNull().default(0),
-    createdAt: integer('created_at').notNull(),
-    startedAt: integer('started_at'),
-    endedAt: integer('ended_at'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    startedAt: bigint('started_at', { mode: 'number' }),
+    endedAt: bigint('ended_at', { mode: 'number' }),
   },
   (table) => [index('idx_tournaments_status').on(table.status)]
 );
@@ -67,7 +68,7 @@ export const tournamentRegistrations = pgTable(
     playerId: text('player_id')
       .notNull()
       .references(() => players.id),
-    registeredAt: integer('registered_at').notNull(),
+    registeredAt: bigint('registered_at', { mode: 'number' }).notNull(),
   },
   (table) => [
     unique('uniq_tournament_player').on(table.tournamentId, table.playerId),
@@ -86,7 +87,7 @@ export const earlyStartVotes = pgTable(
     playerId: text('player_id')
       .notNull()
       .references(() => players.id),
-    votedAt: integer('voted_at').notNull(),
+    votedAt: bigint('voted_at', { mode: 'number' }).notNull(),
   },
   (table) => [
     unique('uniq_vote_tournament_player').on(table.tournamentId, table.playerId),
@@ -112,7 +113,7 @@ export const tables = pgTable(
     bigBlind: integer('big_blind').notNull(),
     ante: integer('ante').notNull().default(0),
     status: text('status').notNull().default('waiting'),
-    createdAt: integer('created_at').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
   (table) => [index('idx_tables_tournament').on(table.tournamentId)]
 );
@@ -165,10 +166,10 @@ export const hands = pgTable(
     pot: integer('pot').notNull().default(0),
     communityCards: text('community_cards').notNull().default('[]'),
     deck: text('deck').notNull(),
-    actionDeadline: integer('action_deadline'),
-    showdownStartedAt: integer('showdown_started_at'),
-    startedAt: integer('started_at').notNull(),
-    endedAt: integer('ended_at'),
+    actionDeadline: bigint('action_deadline', { mode: 'number' }),
+    showdownStartedAt: bigint('showdown_started_at', { mode: 'number' }),
+    startedAt: bigint('started_at', { mode: 'number' }).notNull(),
+    endedAt: bigint('ended_at', { mode: 'number' }),
   },
   (table) => [index('idx_hands_table').on(table.tableId)]
 );
@@ -198,7 +199,7 @@ export const actions = pgTable(
     amount: integer('amount').notNull().default(0),
     phase: text('phase').notNull(),
     sequence: integer('sequence').notNull(),
-    createdAt: integer('created_at').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
   (table) => [index('idx_actions_hand').on(table.handId)]
 );
@@ -231,7 +232,7 @@ export const events = pgTable(
     eventType: text('event_type').notNull(),
     payload: text('payload').notNull(),
     entityVersion: integer('entity_version').notNull(),
-    createdAt: integer('created_at').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
   (table) => [
     index('idx_events_entity').on(table.entityType, table.entityId),
@@ -246,7 +247,7 @@ export const events = pgTable(
 export const migrations = pgTable('migrations', {
   id: serial('id').primaryKey(),
   name: text('name').notNull().unique(),
-  appliedAt: integer('applied_at').notNull(),
+  appliedAt: bigint('applied_at', { mode: 'number' }).notNull(),
 });
 
 // =============================================================================

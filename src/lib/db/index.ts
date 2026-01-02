@@ -1,19 +1,18 @@
 /**
  * Database Connection
  *
- * Uses Vercel Postgres in production, SQLite locally.
- * All operations are async to support both backends.
+ * Uses Neon Serverless Postgres for both local and production.
  */
 
-import { drizzle as drizzlePg } from 'drizzle-orm/vercel-postgres';
-import { sql } from '@vercel/postgres';
+import { drizzle } from 'drizzle-orm/neon-http';
+import { neon } from '@neondatabase/serverless';
 import * as schema from './schema';
 
 // Re-export schema for convenience
 export * from './schema';
 
 // Type for the database instance
-export type Database = ReturnType<typeof drizzlePg<typeof schema>>;
+export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 // Singleton database instance
 let _db: Database | null = null;
@@ -21,13 +20,17 @@ let _db: Database | null = null;
 /**
  * Get the database connection
  *
- * Uses Vercel Postgres via @vercel/postgres which automatically
- * reads POSTGRES_URL from environment variables.
+ * Uses Neon HTTP driver which works in all environments.
  */
 export function getDb(): Database {
   if (!_db) {
-    _db = drizzlePg(sql, { schema });
-    console.log('[Database] Connected to Vercel Postgres');
+    const connectionString = process.env.POSTGRES_URL;
+    if (!connectionString) {
+      throw new Error('POSTGRES_URL environment variable is not set');
+    }
+    const sql = neon(connectionString);
+    _db = drizzle(sql, { schema });
+    console.log('[Database] Connected to Neon Postgres');
   }
   return _db;
 }
