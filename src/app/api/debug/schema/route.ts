@@ -18,7 +18,11 @@ export async function GET() {
     `;
 
     return NextResponse.json({
-      connectionHost: new URL(connectionString).host,
+      postgresUrlHost: new URL(connectionString).host,
+      databaseUrlHost: process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL).host : 'not set',
+      allDbEnvs: Object.keys(process.env).filter(k =>
+        k.includes('POSTGRES') || k.includes('DATABASE') || k.includes('NEON')
+      ),
       schema,
     });
   } catch (error) {
