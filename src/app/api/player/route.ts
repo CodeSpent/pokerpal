@@ -53,19 +53,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ player });
   } catch (error) {
-    const err = error as Error;
-    console.error('Error creating player:', {
-      message: err.message,
-      name: err.name,
-      cause: (err as any).cause?.message,
-      stack: err.stack?.split('\n').slice(0, 5).join('\n'),
-    });
+    console.error('Error creating player:', error);
     return NextResponse.json(
-      {
-        error: 'Failed to create player',
-        details: err.message,
-        cause: (err as any).cause?.message || 'unknown',
-      },
+      { error: 'Failed to create player' },
       { status: 500 }
     );
   }
