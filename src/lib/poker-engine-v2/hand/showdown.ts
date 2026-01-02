@@ -12,6 +12,7 @@ import type Database from 'better-sqlite3';
 import type { Hand, TablePlayer, HandPhase, HandRank, Card, Suit, Rank, Table } from '../types';
 import { generateId, now } from '../db/transaction';
 import { COMMUNITY_CARDS_BY_PHASE } from '../state-machine/hand-fsm';
+import { getValidActions } from '../state-machine/player-fsm';
 import Pusher from 'pusher';
 
 // @ts-expect-error - pokersolver doesn't have proper types
@@ -67,12 +68,13 @@ export function runShowdown(
     }
   }
 
-  // Update hand with final community cards
+  // Update hand with final community cards and record showdown start time
+  const showdownStartedAt = Date.now();
   db.prepare(`
     UPDATE hands
-    SET community_cards = ?, deck = ?, phase = 'showdown'
+    SET community_cards = ?, deck = ?, phase = 'showdown', showdown_started_at = ?
     WHERE id = ?
-  `).run(JSON.stringify(communityCards), JSON.stringify(deck), handId);
+  `).run(JSON.stringify(communityCards), JSON.stringify(deck), showdownStartedAt, handId);
 
   // Get eligible players (not folded)
   const eligiblePlayers = players.filter(
@@ -218,7 +220,7 @@ export function runShowdown(
     });
   }
 
-  // Delay completing hand to allow showdown display (10 seconds)
+  // Delay completing hand to allow showdown display (5 seconds)
   // The phase stays 'showdown' during this time
   setTimeout(() => {
     try {
@@ -228,7 +230,7 @@ export function runShowdown(
     } catch (err) {
       console.error('[runShowdown] Failed to complete hand:', err);
     }
-  }, 10000);
+  }, 5000);
 }
 
 /**
@@ -399,12 +401,36 @@ function completeHand(
             },
           });
 
+          // Get players and compute validActions for first actor
+          const players = db.prepare(`
+            SELECT tp.*, p.name, p.avatar
+            FROM table_players tp
+            JOIN players p ON tp.player_id = p.id
+            WHERE tp.table_id = ?
+            ORDER BY tp.seat_index
+          `).all(effectiveTableId) as TablePlayer[];
+
+          const firstActorPlayer = players.find(p => p.seat_index === newHand.current_actor_seat);
+          const toCall = Math.max(0, newHand.current_bet - (firstActorPlayer?.current_bet || 0));
+          const validActionsForActor = firstActorPlayer
+            ? getValidActions({
+                status: firstActorPlayer.status,
+                currentBet: newHand.current_bet,
+                playerBet: firstActorPlayer.current_bet,
+                playerStack: firstActorPlayer.stack,
+                minRaise: newHand.min_raise,
+                bigBlind: table.big_blind,
+                canCheck: toCall === 0,
+              })
+            : null;
+
           // Broadcast TURN_STARTED event
           await pusher.trigger(`table-${effectiveTableId}`, 'TURN_STARTED', {
             eventId: `turn-${newHand.id}-0-${newHand.current_actor_seat}`,
             seatIndex: newHand.current_actor_seat,
             expiresAt: newHand.action_deadline ?? null,
             isUnlimited: newHand.action_deadline === null,
+            validActions: validActionsForActor,
           });
         }
       } catch (err) {

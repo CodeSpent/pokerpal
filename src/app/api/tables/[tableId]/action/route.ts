@@ -5,6 +5,7 @@ import {
   submitAction,
   getTableWithPlayers,
   getCurrentHand,
+  getValidActions,
 } from '@/lib/poker-engine-v2';
 import type { ActionType } from '@/lib/poker-engine-v2';
 
@@ -154,12 +155,30 @@ export async function POST(
       const expiresAt = actionResult.hand.action_deadline ?? null;
       const isUnlimited = expiresAt === null;
 
+      // Compute validActions for the next actor
+      const nextActorPlayer = actionResult.players.find(
+        (p) => p.seat_index === actionResult.nextActorSeat
+      );
+      const toCall = Math.max(0, actionResult.hand.current_bet - (nextActorPlayer?.current_bet || 0));
+      const validActionsForNextActor = nextActorPlayer
+        ? getValidActions({
+            status: nextActorPlayer.status,
+            currentBet: actionResult.hand.current_bet,
+            playerBet: nextActorPlayer.current_bet,
+            playerStack: nextActorPlayer.stack,
+            minRaise: actionResult.hand.min_raise,
+            bigBlind: table.big_blind,
+            canCheck: toCall === 0,
+          })
+        : null;
+
       events.push({
         type: 'TURN_STARTED',
         eventId: `turn-${handId}-${handVersion}-${actionResult.nextActorSeat}`,
         seatIndex: actionResult.nextActorSeat,
         expiresAt,
         isUnlimited,
+        validActions: validActionsForNextActor,
       });
     }
 

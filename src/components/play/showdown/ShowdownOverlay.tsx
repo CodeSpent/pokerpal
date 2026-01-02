@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import type { Card } from '@/types/poker';
 import type { Seat } from '@/lib/poker-engine-v2/types';
+import { isCardHighlighted } from '@/lib/card-utils';
 import { PlayingCard } from '../cards/PlayingCard';
 import { HoleCards } from '../cards/HoleCards';
 import { User, Trophy } from 'lucide-react';
@@ -23,13 +24,6 @@ interface ShowdownOverlayProps {
   pot: number;
   communityCards: Card[];
   seats: Seat[];
-}
-
-// Helper to check if a card is part of the winning hand
-function isCardInBestHand(card: Card, bestCards: Card[]): boolean {
-  return bestCards.some(
-    (bc) => bc.rank === card.rank && bc.suit === card.suit
-  );
 }
 
 export function ShowdownOverlay({
@@ -129,7 +123,7 @@ export function ShowdownOverlay({
                   key={`${card.rank}${card.suit}`}
                   card={card}
                   size="sm"
-                  highlighted={isCardInBestHand(card, allBestCards)}
+                  highlighted={isCardHighlighted(card, allBestCards)}
                 />
               ))}
             </div>

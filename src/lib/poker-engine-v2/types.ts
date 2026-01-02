@@ -154,6 +154,7 @@ export interface Hand {
   community_cards: string; // JSON array of card strings
   deck: string;            // JSON array of remaining cards
   action_deadline?: number;
+  showdown_started_at?: number; // Timestamp when showdown phase began
   started_at: number;
   ended_at?: number;
 }

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import * as Slider from '@radix-ui/react-slider';
+import { calculateQuickBets, parseBetInput } from '@/services/betCalculator';
 
 interface BetSliderProps {
   value: number;
@@ -43,10 +44,9 @@ export function BetSlider({
     const rawValue = e.target.value.replace(/[^0-9]/g, '');
     setInputValue(rawValue);
 
-    const numValue = parseInt(rawValue, 10);
-    if (!isNaN(numValue)) {
-      const clamped = Math.max(min, Math.min(max, numValue));
-      onChange(clamped);
+    const parsed = parseBetInput(e.target.value, min, max);
+    if (parsed !== null) {
+      onChange(parsed);
     }
   };
 
@@ -54,13 +54,11 @@ export function BetSlider({
     setInputValue(value.toString());
   };
 
-  // Quick bet buttons
-  const quickBets = [
-    { label: 'Min', value: min },
-    { label: '1/2 Pot', value: Math.min(max, Math.floor(pot / 2) + (value - min)) },
-    { label: 'Pot', value: Math.min(max, pot + (value - min)) },
-    { label: 'All In', value: max },
-  ];
+  // Quick bet buttons - memoized to avoid recalculation
+  const quickBets = useMemo(
+    () => calculateQuickBets(min, max, pot, value - min),
+    [min, max, pot, value]
+  );
 
   return (
     <motion.div

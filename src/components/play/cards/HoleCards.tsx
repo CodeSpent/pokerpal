@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import type { Card } from '@/types/poker';
+import { isCardHighlighted } from '@/lib/card-utils';
 import { PlayingCard } from './PlayingCard';
 import { CardBack } from './CardBack';
 
@@ -14,14 +15,6 @@ interface HoleCardsProps {
   isDealing?: boolean;
   highlightedCards?: Card[]; // Cards that should be highlighted (part of winning hand)
   className?: string;
-}
-
-// Helper to check if a card matches any in the highlighted set
-function isCardHighlighted(card: Card, highlightedCards?: Card[]): boolean {
-  if (!highlightedCards || highlightedCards.length === 0) return false;
-  return highlightedCards.some(
-    (hc) => hc.rank === card.rank && hc.suit === card.suit
-  );
 }
 
 export function HoleCards({

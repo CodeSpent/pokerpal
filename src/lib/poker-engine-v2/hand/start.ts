@@ -47,6 +47,9 @@ function cardToString(card: Card): string {
 /**
  * Start a new hand on a table
  *
+ * This function is idempotent - if a hand already exists (including showdown),
+ * it returns the existing hand instead of creating a new one.
+ *
  * This is wrapped in a transaction to ensure atomicity.
  * If any step fails, the entire operation is rolled back.
  */
@@ -57,6 +60,31 @@ export function startNewHand(
 ): Hand {
   // Wrap everything in a transaction for atomicity
   const startHandTransaction = db.transaction(() => {
+    // Idempotency check: if a non-complete hand already exists, return it
+    const existingHand = db.prepare(`
+      SELECT * FROM hands
+      WHERE table_id = ? AND phase NOT IN ('complete')
+      ORDER BY hand_number DESC
+      LIMIT 1
+    `).get(tableId) as Hand | undefined;
+
+    if (existingHand) {
+      console.log(`[startNewHand] Hand #${existingHand.hand_number} already exists, returning existing`);
+      return existingHand;
+    }
+
+    // Also check if this specific hand number was already created
+    const handWithNumber = db.prepare(`
+      SELECT * FROM hands
+      WHERE table_id = ? AND hand_number = ?
+    `).get(tableId, handNumber) as Hand | undefined;
+
+    if (handWithNumber) {
+      console.log(`[startNewHand] Hand #${handNumber} already exists (may be complete), skipping`);
+      // Return null to indicate we shouldn't start - caller should fetch current state
+      return handWithNumber;
+    }
+
     return startNewHandInternal(db, tableId, handNumber);
   });
 

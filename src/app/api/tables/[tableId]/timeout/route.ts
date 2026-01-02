@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import Pusher from 'pusher';
 import { handleTurnTimeout } from '@/lib/poker-engine-v2/hand/timeout';
-import { getTableWithPlayers, getCurrentHand } from '@/lib/poker-engine-v2';
+import { getTableWithPlayers, getCurrentHand, getValidActions } from '@/lib/poker-engine-v2';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -38,6 +38,17 @@ export async function POST(
     }
 
     const { tableId } = await params;
+
+    // Verify player is at this table
+    const { players } = getTableWithPlayers(tableId);
+    const isSeated = players.some(p => p.player_id === playerId);
+
+    if (!isSeated) {
+      return NextResponse.json(
+        { error: 'Not seated at this table' },
+        { status: 403 }
+      );
+    }
 
     // Handle the timeout
     const result = handleTurnTimeout(tableId);
@@ -79,17 +90,34 @@ export async function POST(
 
       // Get updated hand state and send turn/phase updates
       const hand = getCurrentHand(tableId);
-      if (hand) {
+      const { table, players } = getTableWithPlayers(tableId);
+      if (hand && table) {
         if (hand.current_actor_seat !== null) {
           // Use action_deadline from hand (null = unlimited timer)
           const expiresAt = hand.action_deadline ?? null;
           const isUnlimited = expiresAt === null;
+
+          // Compute validActions for the next actor
+          const nextActorPlayer = players.find(p => p.seat_index === hand.current_actor_seat);
+          const toCall = Math.max(0, hand.current_bet - (nextActorPlayer?.current_bet || 0));
+          const validActionsForActor = nextActorPlayer
+            ? getValidActions({
+                status: nextActorPlayer.status,
+                currentBet: hand.current_bet,
+                playerBet: nextActorPlayer.current_bet,
+                playerStack: nextActorPlayer.stack,
+                minRaise: hand.min_raise,
+                bigBlind: table.big_blind,
+                canCheck: toCall === 0,
+              })
+            : null;
 
           await pusher.trigger(`table-${tableId}`, 'TURN_STARTED', {
             type: 'TURN_STARTED',
             seatIndex: hand.current_actor_seat,
             expiresAt,
             isUnlimited,
+            validActions: validActionsForActor,
           });
         }
 

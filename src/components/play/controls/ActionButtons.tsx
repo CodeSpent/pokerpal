@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { useTableStore, useIsHeroTurn, useHeroSeat } from '@/stores/table-store';
+import { useActionKeyboardShortcuts } from '@/hooks/useActionKeyboardShortcuts';
 import { BetSlider } from './BetSlider';
 import type { Action } from '@/types/poker';
 
@@ -78,42 +79,22 @@ export function ActionButtons({
   const handleAllIn = () => handleAction('all-in');
 
   // Keyboard shortcuts
-  useEffect(() => {
-    if (!isHeroTurn || disabled) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if typing in an input
-      if (e.target instanceof HTMLInputElement) return;
-
-      switch (e.key.toLowerCase()) {
-        case 'f':
-          handleFold();
-          break;
-        case 'c':
-          canCheck ? handleCheck() : canCall ? handleCall() : null;
-          break;
-        case 'b':
-          if (canBet && !canRaise) {
-            setShowBetSlider(true);
-          }
-          break;
-        case 'r':
-          if (canRaise) {
-            setShowRaiseSlider(true);
-          } else if (canBet) {
-            setShowBetSlider(true);
-          }
-          break;
-        case 'escape':
-          setShowRaiseSlider(false);
-          setShowBetSlider(false);
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isHeroTurn, disabled, canCheck, canCall, canBet, canRaise]);
+  useActionKeyboardShortcuts({
+    isEnabled: isHeroTurn && !disabled,
+    onFold: handleFold,
+    onCheck: handleCheck,
+    onCall: handleCall,
+    onShowBet: () => setShowBetSlider(true),
+    onShowRaise: () => setShowRaiseSlider(true),
+    onCancel: () => {
+      setShowRaiseSlider(false);
+      setShowBetSlider(false);
+    },
+    canCheck,
+    canCall,
+    canBet,
+    canRaise,
+  });
 
   // Debug output
   const { currentActorSeatIndex, heroSeatIndex: storeHeroSeatIndex } = useTableStore();

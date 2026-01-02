@@ -151,16 +151,9 @@ export {
   getTableStateForPlayer,
 } from './sync/reconnection';
 
-/**
- * Initialize the database
- * Call this on app startup
- */
-export function initializeDatabase(): void {
-  const { getDatabase: getDb } = require('./db/connection');
-  console.log('[PokerEngine] Initializing database...');
-  getDb();
-  console.log('[PokerEngine] Database ready');
-}
+// Game Advancement
+export { advanceGameState } from './game/advance-game';
+export type { AdvanceResult } from './game/advance-game';
 
 /**
  * Get table by ID with players
@@ -192,10 +185,10 @@ export function getTableWithPlayers(tableId: string): {
 }
 
 /**
- * Get current hand for a table
+ * Get current active hand for a table
  *
- * Only returns hands in active betting phases.
- * Excludes 'dealing' (incomplete setup) and 'complete'/'showdown' (finished).
+ * Returns hands in any active phase (betting phases or showdown).
+ * Excludes 'dealing' (incomplete setup) and 'complete' (finished).
  */
 export function getCurrentHand(tableId: string): import('./types').Hand | null {
   const { getDatabase: getDb } = require('./db/connection');
@@ -203,7 +196,7 @@ export function getCurrentHand(tableId: string): import('./types').Hand | null {
 
   const hand = db.prepare(`
     SELECT * FROM hands
-    WHERE table_id = ? AND phase IN ('preflop', 'flop', 'turn', 'river')
+    WHERE table_id = ? AND phase NOT IN ('complete', 'dealing')
     ORDER BY hand_number DESC
     LIMIT 1
   `).get(tableId) as import('./types').Hand | undefined;
@@ -231,86 +224,3 @@ export function getPlayerAtTable(
   return player || null;
 }
 
-/**
- * Cleanup: Remove any broken 'dealing' phase hands
- * These can occur if startNewHand fails mid-transaction (though rare with transaction wrapping)
- */
-export function cleanupBrokenHands(tableId: string): number {
-  const { getDatabase: getDb } = require('./db/connection');
-  const db = getDb();
-
-  // Delete any hands stuck in 'dealing' phase (incomplete hand creation)
-  const result = db.prepare(`
-    DELETE FROM hands
-    WHERE table_id = ? AND phase = 'dealing'
-  `).run(tableId);
-
-  if (result.changes > 0) {
-    console.log(`[cleanupBrokenHands] Deleted ${result.changes} incomplete hands for table ${tableId}`);
-  }
-
-  return result.changes;
-}
-
-/**
- * Recovery: Check if current actor can actually act, and fix if not
- * This handles corrupted state where current_actor points to all_in/folded player
- */
-export function recoverInvalidActorState(tableId: string): boolean {
-  const { getDatabase: getDb } = require('./db/connection');
-  const { findNextActor } = require('./hand/turn-order');
-
-  const db = getDb();
-
-  const hand = db.prepare(`
-    SELECT * FROM hands
-    WHERE table_id = ? AND phase NOT IN ('complete', 'awarding', 'showdown')
-    ORDER BY hand_number DESC
-    LIMIT 1
-  `).get(tableId) as import('./types').Hand | undefined;
-
-  if (!hand || hand.current_actor_seat === null) {
-    return false;
-  }
-
-  const players = db.prepare(`
-    SELECT tp.*, p.name
-    FROM table_players tp
-    JOIN players p ON tp.player_id = p.id
-    WHERE tp.table_id = ?
-    ORDER BY tp.seat_index
-  `).all(tableId) as import('./types').TablePlayer[];
-
-  const currentActor = players.find(p => p.seat_index === hand.current_actor_seat);
-
-  // Check if current actor can actually act
-  const cannotActStatuses = ['folded', 'all_in', 'sitting_out', 'eliminated'];
-  if (currentActor && cannotActStatuses.includes(currentActor.status)) {
-    console.log(`[recoverInvalidActorState] Current actor at seat ${hand.current_actor_seat} has status ${currentActor.status}, finding next actor`);
-
-    // Find the next valid actor
-    const nextActor = findNextActor(hand, players, hand.current_actor_seat);
-
-    if (nextActor) {
-      // Update to next actor
-      db.prepare(`
-        UPDATE hands SET current_actor_seat = ?, action_deadline = ?
-        WHERE id = ?
-      `).run(nextActor.seat_index, Date.now() + 30000, hand.id);
-
-      db.prepare(`
-        UPDATE table_players SET status = 'active'
-        WHERE table_id = ? AND seat_index = ? AND status IN ('waiting', 'acted')
-      `).run(tableId, nextActor.seat_index);
-
-      console.log(`[recoverInvalidActorState] Advanced to seat ${nextActor.seat_index}`);
-      return true;
-    } else {
-      // No next actor - betting complete, might need to advance phase
-      console.log(`[recoverInvalidActorState] No next actor found, betting may be complete`);
-      return false;
-    }
-  }
-
-  return false;
-}

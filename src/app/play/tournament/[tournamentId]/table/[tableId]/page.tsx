@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { useTableStore } from '@/stores/table-store';
 import { useTableChannel } from '@/hooks/useTableChannel';
 import { useSyncManager } from '@/hooks/useSyncManager';
 import { PokerTable, TurnTimer } from '@/components/play/table';
 import { ActionButtons } from '@/components/play/controls';
+import { submitAction, triggerTimeout } from '@/services/tableActionService';
 import type { Action } from '@/types/poker';
 import { Wifi, WifiOff, Clock } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
@@ -60,12 +60,9 @@ export default function TablePage({
 
     // If already expired, trigger immediately
     if (timeUntilExpiry <= 0) {
-      const triggerTimeout = async () => {
+      const handleTimeout = async () => {
         try {
-          const res = await fetch(`/api/tables/${tableId}/timeout`, {
-            method: 'POST',
-          });
-          const data = await res.json();
+          const data = await triggerTimeout(tableId);
           if (data.success && data.seatIndex === heroSeatIndex) {
             toast({ description: 'Turn expired - auto-folded', variant: 'default' });
           }
@@ -73,17 +70,14 @@ export default function TablePage({
           console.error('Failed to trigger timeout:', err);
         }
       };
-      triggerTimeout();
+      handleTimeout();
       return;
     }
 
     // Set a timer to trigger timeout when turn expires
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/tables/${tableId}/timeout`, {
-          method: 'POST',
-        });
-        const data = await res.json();
+        const data = await triggerTimeout(tableId);
         if (data.success && data.seatIndex === heroSeatIndex) {
           toast({ description: 'Turn expired - auto-folded', variant: 'default' });
         }
@@ -106,13 +100,7 @@ export default function TablePage({
       const actionId = applyOptimisticAction(action, amount, heroSeatIndex);
 
       try {
-        const res = await fetch(`/api/tables/${tableId}/action`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, amount }),
-        });
-
-        const data = await res.json();
+        const data = await submitAction(tableId, action, amount);
 
         if (!data.success) {
           // Rollback optimistic update and show error

@@ -3,20 +3,13 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import type { Card } from '@/types/poker';
+import { isCardHighlighted } from '@/lib/card-utils';
 import { PlayingCard } from './PlayingCard';
 
 interface CommunityCardsProps {
   cards: Card[];
   highlightedCards?: Card[];
   className?: string;
-}
-
-// Helper to check if a card matches any in the highlighted set
-function isCardHighlighted(card: Card, highlightedCards?: Card[]): boolean {
-  if (!highlightedCards || highlightedCards.length === 0) return false;
-  return highlightedCards.some(
-    (hc) => hc.rank === card.rank && hc.suit === card.suit
-  );
 }
 
 export function CommunityCards({ cards, highlightedCards, className }: CommunityCardsProps) {

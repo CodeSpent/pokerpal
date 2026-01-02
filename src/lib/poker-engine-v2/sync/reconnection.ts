@@ -118,12 +118,14 @@ export function getFullTableState(tableId: string): TableStateResponse {
 
 /**
  * Get the current (active) hand for a table
+ * Returns hands in any active phase (betting phases or showdown).
+ * Excludes 'dealing' (incomplete setup) and 'complete' (finished).
  */
 function getCurrentHand(tableId: string): Hand | null {
   const db = getDatabase();
   const hand = db.prepare(`
     SELECT * FROM hands
-    WHERE table_id = ? AND phase NOT IN ('complete')
+    WHERE table_id = ? AND phase NOT IN ('complete', 'dealing')
     ORDER BY hand_number DESC
     LIMIT 1
   `).get(tableId) as Hand | undefined;

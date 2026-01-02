@@ -1,31 +1,14 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import Pusher from 'pusher';
 import {
   getTableWithPlayers,
-  getCurrentHand,
-  getPlayerAtTable,
   getDatabase,
-  recoverInvalidActorState,
-  cleanupBrokenHands,
 } from '@/lib/poker-engine-v2';
+import { parseCard } from '@/lib/card-utils';
 import { getValidActions } from '@/lib/poker-engine-v2/state-machine/player-fsm';
-import { handleTurnTimeout } from '@/lib/poker-engine-v2/hand/timeout';
-import { startNewHand } from '@/lib/poker-engine-v2/hand/start';
+import { advanceGameState } from '@/lib/poker-engine-v2/game/advance-game';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
-
-// Initialize Pusher server (only if credentials exist)
-let pusher: Pusher | null = null;
-if (process.env.PUSHER_APP_ID) {
-  pusher = new Pusher({
-    appId: process.env.PUSHER_APP_ID,
-    key: process.env.PUSHER_KEY!,
-    secret: process.env.PUSHER_SECRET!,
-    cluster: process.env.PUSHER_CLUSTER!,
-    useTLS: true,
-  });
-}
 
 /**
  * GET /api/tables/[tableId]
@@ -47,17 +30,14 @@ export async function GET(
     }
 
     const { tableId } = await params;
+    const db = getDatabase();
 
-    // Cleanup any broken 'dealing' phase hands first
-    cleanupBrokenHands(tableId);
+    // Advance game state idempotently
+    // This handles: cleanup, timeouts, actor recovery, showdown completion, new hand start
+    // All operations are idempotent - safe to call from multiple concurrent pollers
+    const advanceResult = advanceGameState(db, tableId);
 
-    // Check for expired turns before fetching state
-    // This handles disconnected players when any client polls
-    handleTurnTimeout(tableId);
-
-    // Recover from invalid actor state (e.g., current actor is all-in)
-    recoverInvalidActorState(tableId);
-
+    // Get fresh table and player state after any advances
     const { table, players } = getTableWithPlayers(tableId);
 
     if (!table) {
@@ -77,60 +57,8 @@ export async function GET(
       );
     }
 
-    // Get current hand
-    let hand = getCurrentHand(tableId);
-
-    // If no active hand, check if we should start a new one
-    if (!hand) {
-      const db = getDatabase();
-
-      // Check if there are enough active players
-      const activePlayers = players.filter(p =>
-        !['eliminated', 'sitting_out'].includes(p.status)
-      );
-
-      if (activePlayers.length >= 2) {
-        // Get the last completed hand number
-        const lastHand = db.prepare(`
-          SELECT hand_number FROM hands
-          WHERE table_id = ?
-          ORDER BY hand_number DESC
-          LIMIT 1
-        `).get(tableId) as { hand_number: number } | undefined;
-
-        const nextHandNumber = (lastHand?.hand_number || 0) + 1;
-
-        try {
-          console.log(`[GET /api/tables] Starting new hand #${nextHandNumber}`);
-          hand = startNewHand(db, tableId, nextHandNumber);
-
-          // Broadcast Pusher events so all clients get notified
-          if (pusher && hand) {
-            // Broadcast HAND_STARTED event
-            await pusher.trigger(`table-${tableId}`, 'HAND_STARTED', {
-              handNumber: hand.hand_number,
-              dealerSeatIndex: hand.dealer_seat,
-              smallBlindSeatIndex: hand.small_blind_seat,
-              bigBlindSeatIndex: hand.big_blind_seat,
-              firstActorSeat: hand.current_actor_seat,
-              blinds: {
-                sb: table.small_blind,
-                bb: table.big_blind,
-              },
-            });
-
-            // Broadcast TURN_STARTED event
-            await pusher.trigger(`table-${tableId}`, 'TURN_STARTED', {
-              seatIndex: hand.current_actor_seat,
-              expiresAt: hand.action_deadline ?? null,
-              isUnlimited: hand.action_deadline === null,
-            });
-          }
-        } catch (err) {
-          console.error('[GET /api/tables] Failed to start new hand:', err);
-        }
-      }
-    }
+    // Get current hand from advance result (or null if no active hand)
+    const hand = advanceResult.hand;
 
     // Build response with hidden hole cards for opponents
     const isShowdown = hand?.phase === 'showdown';
@@ -250,15 +178,3 @@ export async function GET(
   }
 }
 
-/**
- * Parse card string (e.g., "Ah") to Card object
- */
-function parseCard(cardStr: string): { rank: string; suit: string } {
-  const rank = cardStr[0];
-  const suit = cardStr[1]; // Keep as short form: 'h', 'd', 'c', 's'
-
-  return {
-    rank,
-    suit,
-  };
-}

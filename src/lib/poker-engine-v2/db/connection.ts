@@ -234,6 +234,7 @@ function applyInitialSchema(database: Database.Database): void {
       community_cards TEXT NOT NULL DEFAULT '[]',
       deck TEXT NOT NULL,
       action_deadline INTEGER,
+      showdown_started_at INTEGER,
       started_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       ended_at INTEGER,
       FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE
@@ -312,16 +313,30 @@ function applyInitialSchema(database: Database.Database): void {
  */
 function applySchemaUpdates(database: Database.Database): void {
   // Check if turn_timer_seconds column exists in tournaments table
-  const columns = database
+  const tournamentColumns = database
     .prepare("PRAGMA table_info(tournaments)")
     .all() as { name: string }[];
 
-  const columnNames = new Set(columns.map(c => c.name));
+  const tournamentColumnNames = new Set(tournamentColumns.map(c => c.name));
 
-  if (!columnNames.has('turn_timer_seconds')) {
+  if (!tournamentColumnNames.has('turn_timer_seconds')) {
     console.log('[Database] Adding turn_timer_seconds column to tournaments');
     database.exec(`
       ALTER TABLE tournaments ADD COLUMN turn_timer_seconds INTEGER DEFAULT 30
+    `);
+  }
+
+  // Check if showdown_started_at column exists in hands table
+  const handColumns = database
+    .prepare("PRAGMA table_info(hands)")
+    .all() as { name: string }[];
+
+  const handColumnNames = new Set(handColumns.map(c => c.name));
+
+  if (!handColumnNames.has('showdown_started_at')) {
+    console.log('[Database] Adding showdown_started_at column to hands');
+    database.exec(`
+      ALTER TABLE hands ADD COLUMN showdown_started_at INTEGER
     `);
   }
 

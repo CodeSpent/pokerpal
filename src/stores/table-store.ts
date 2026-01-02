@@ -7,6 +7,7 @@ import type {
   ActionRecord,
   TableEvent,
 } from '@/lib/poker-engine-v2/types';
+import { parseCard } from '@/lib/card-utils';
 
 // Generate unique ID for optimistic actions
 function generateOptimisticId(): string {
@@ -169,12 +170,6 @@ interface TableStoreState {
   // Last sync timestamp for staleness detection
   lastSyncTimestamp: number;
 
-  // Showdown lock - enforces minimum display time for showdown
-  showdownReceivedAt: number | null;
-  newHandLockedUntil: number | null;
-
-  // Showdown deduplication - tracks which hand's showdown we've applied
-  showdownAppliedForHand: number | null;
 
   // Actions
   setTableState: (state: TableState, heroSeatIndex: number, version?: number, lastEventId?: number, validActions?: ValidActions | null) => void;
@@ -237,65 +232,22 @@ const INITIAL_STATE = {
   pendingAction: null,
   appliedEventIds: new Set<string>(),
   lastSyncTimestamp: 0,
-  showdownReceivedAt: null,
-  newHandLockedUntil: null,
-  showdownAppliedForHand: null,
 };
 
 export const useTableStore = create<TableStoreState>((set, get) => ({
   ...INITIAL_STATE,
 
   setTableState: (state, heroSeatIndex, version, lastEventId, validActions) => {
-    const current = get();
-
-    // If we're in showdown lock and server says new hand started,
-    // keep showdown state - don't overwrite with new hand data yet
-    if (current.newHandLockedUntil && Date.now() < current.newHandLockedUntil) {
-      // Server has new hand, but we're still showing showdown
-      if (state.phase === 'preflop' || state.phase === 'dealing') {
-        // Don't update phase-related state, just update non-disruptive fields
-        set({
-          isLoading: false,
-          error: null,
-        });
-        return;
-      }
-    }
-
     // Extract hero's hole cards from their seat
-    // Note: heroSeatIndex is the seat number, not array index - use find()
     const heroSeat = state.seats.find(s => s.index === heroSeatIndex);
     const heroHoleCards = heroSeat?.player?.holeCards || null;
 
-    // If transitioning from showdown to new hand, clear the lock
-    const clearingShowdown = current.phase === 'showdown' && (state.phase === 'preflop' || state.phase === 'dealing');
-
-    // Preserve existing showdownResult during showdown phase for same hand
-    // This prevents polling from overwriting showdown state we already have
+    // Preserve showdownResult during showdown phase (prevents fetch from clearing it)
+    const current = get();
     const preserveShowdown =
-      current.phase === 'showdown' &&
+      state.phase === 'showdown' &&
       current.showdownResult !== null &&
       current.handNumber === state.handNumber;
-
-    // Determine showdown state updates
-    let showdownUpdates: Record<string, unknown> = {};
-    if (clearingShowdown) {
-      // Transitioning to new hand - clear all showdown state
-      showdownUpdates = {
-        showdownReceivedAt: null,
-        newHandLockedUntil: null,
-        showdownResult: null,
-        showdownAppliedForHand: null,
-      };
-    } else if (preserveShowdown) {
-      // Keep existing showdown state - don't overwrite what we have
-      showdownUpdates = {
-        showdownResult: current.showdownResult,
-        showdownAppliedForHand: current.showdownAppliedForHand,
-        showdownReceivedAt: current.showdownReceivedAt,
-        newHandLockedUntil: current.newHandLockedUntil,
-      };
-    }
 
     set({
       tableId: state.id,
@@ -327,7 +279,8 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
       version: version ?? (state as unknown as { version?: number }).version ?? 0,
       lastEventId: lastEventId ?? get().lastEventId,
       validActions: validActions ?? null,
-      ...showdownUpdates,
+      // Preserve showdown result if still in showdown, else clear on phase change
+      showdownResult: preserveShowdown ? current.showdownResult : (state.phase === 'showdown' ? current.showdownResult : null),
     });
   },
 
@@ -401,18 +354,7 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
         break;
 
       case 'HAND_STARTED': {
-        // Check if we're still in showdown lock period
-        const { newHandLockedUntil } = state;
-        const now = Date.now();
-
-        // If in showdown lock period, don't process this event yet
-        // Polling will pick it up again after the lock expires
-        if (newHandLockedUntil && now < newHandLockedUntil) {
-          return;
-        }
-
         // Event may come from different sources with different property names
-        // Use a loose type to handle all variations
         const handEvent = event as {
           type: 'HAND_STARTED';
           handNumber: number;
@@ -427,7 +369,23 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
           blinds?: { sb: number; bb: number };
         };
 
-        // Clear showdown lock and proceed with new hand
+        // Reset seats for new hand - clear hole cards and reset player states
+        const resetSeats = state.seats.map((s) => {
+          if (!s.player) return s;
+          return {
+            ...s,
+            player: {
+              ...s.player,
+              holeCards: undefined, // Clear revealed hole cards from showdown
+              currentBet: 0,
+              hasActed: false,
+              isAllIn: false,
+              status: s.player.status === 'folded' ? 'waiting' : s.player.status,
+            },
+          };
+        });
+
+        // Apply new hand state - server controls timing
         set({
           handNumber: handEvent.handNumber,
           phase: 'preflop',
@@ -441,9 +399,7 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
           bigBlindSeatIndex: handEvent.bigBlindSeatIndex ?? handEvent.bigBlindSeat ?? 0,
           currentActorSeatIndex: handEvent.firstActorSeatIndex ?? handEvent.firstActorSeat ?? null,
           showdownResult: null, // Clear showdown result for new hand
-          showdownReceivedAt: null, // Clear showdown lock
-          newHandLockedUntil: null,
-          showdownAppliedForHand: null, // Clear showdown deduplication
+          seats: resetSeats,
         });
         break;
       }
@@ -482,7 +438,7 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
       case 'STREET_DEALT':
         set({
           phase: event.street as TableState['phase'],
-          communityCards: [...state.communityCards, ...event.cards],
+          communityCards: event.cards,
           currentBet: 0,
           // Reset hasActed for all players
           seats: state.seats.map((s) => ({
@@ -501,13 +457,25 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
         });
         break;
 
-      case 'TURN_STARTED':
+      case 'TURN_STARTED': {
+        const turnEvent = event as {
+          seatIndex: number;
+          expiresAt?: number | null;
+          isUnlimited?: boolean;
+          validActions?: ValidActions;
+        };
+
+        // Apply validActions only if this is hero's turn, otherwise clear them
+        const isHeroTurn = turnEvent.seatIndex === state.heroSeatIndex;
+
         set({
-          currentActorSeatIndex: event.seatIndex,
-          turnExpiresAt: event.expiresAt,
-          turnIsUnlimited: event.isUnlimited ?? false,
+          currentActorSeatIndex: turnEvent.seatIndex,
+          turnExpiresAt: turnEvent.expiresAt ?? null,
+          turnIsUnlimited: turnEvent.isUnlimited ?? false,
+          validActions: isHeroTurn ? (turnEvent.validActions ?? null) : null,
         });
         break;
+      }
 
       case 'PLAYER_TIMEOUT':
         // Server will send ACTION event for auto-fold
@@ -529,31 +497,18 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
             amount: number;
           }>;
           pot: number;
-          // Legacy support for reveals
           reveals?: Array<{ seatIndex: number; cards: [Card, Card] }>;
         };
-
-        // Secondary deduplication: skip if we've already applied showdown for this hand
-        if (showdownEvent.handNumber &&
-            state.showdownAppliedForHand === showdownEvent.handNumber) {
-          return;
-        }
-
-        // Parse card strings to Card objects
-        const parseCardStr = (cardStr: string): Card => ({
-          rank: cardStr[0] as Card['rank'],
-          suit: cardStr[1] as Card['suit'],
-        });
 
         // Build showdownResult from winners
         const showdownResult = {
           winners: showdownEvent.winners.map((w) => ({
             playerId: w.playerId,
             seatIndex: w.seatIndex,
-            holeCards: [parseCardStr(w.holeCards[0]), parseCardStr(w.holeCards[1])] as [Card, Card],
+            holeCards: [parseCard(w.holeCards[0]), parseCard(w.holeCards[1])] as [Card, Card],
             handRank: w.handRank,
             description: w.description,
-            bestCards: (w.bestCards || []).map(parseCardStr),
+            bestCards: (w.bestCards || []).map(parseCard),
             amount: w.amount,
           })),
           pot: showdownEvent.pot,
@@ -561,18 +516,16 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
 
         // Reveal hole cards for all shown players
         const revealedSeats = state.seats.map((s) => {
-          // Check if this seat is a winner
           const winner = showdownEvent.winners.find((w) => w.seatIndex === s.index);
           if (winner && s.player) {
             return {
               ...s,
               player: {
                 ...s.player,
-                holeCards: [parseCardStr(winner.holeCards[0]), parseCardStr(winner.holeCards[1])] as [Card, Card],
+                holeCards: [parseCard(winner.holeCards[0]), parseCard(winner.holeCards[1])] as [Card, Card],
               },
             };
           }
-          // Legacy support for reveals
           if (showdownEvent.reveals) {
             const reveal = showdownEvent.reveals.find((r) => r.seatIndex === s.index);
             if (reveal && s.player) {
@@ -585,15 +538,11 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
           return s;
         });
 
-        // Set showdown lock - enforce minimum 8 seconds display time
-        const now = Date.now();
+        // Display showdown - server controls when HAND_STARTED is sent
         set({
           phase: 'showdown',
           seats: revealedSeats,
           showdownResult,
-          showdownReceivedAt: now,
-          newHandLockedUntil: now + 8000, // Lock for 8 seconds
-          showdownAppliedForHand: showdownEvent.handNumber ?? null,
         });
         break;
       }
@@ -636,12 +585,6 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
           }>;
         };
 
-        // Parse card strings to Card objects
-        const parseCardStr = (cardStr: string): Card => ({
-          rank: cardStr[0] as Card['rank'],
-          suit: cardStr[1] as Card['suit'],
-        });
-
         // If we have winners and no showdownResult yet, build it
         let newShowdownResult = state.showdownResult;
         if (completeEvent.winners && completeEvent.winners.length > 0 && !state.showdownResult) {
@@ -649,10 +592,10 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
             winners: completeEvent.winners.map((w) => ({
               playerId: w.playerId,
               seatIndex: w.seatIndex,
-              holeCards: [parseCardStr(w.holeCards[0]), parseCardStr(w.holeCards[1])] as [Card, Card],
+              holeCards: [parseCard(w.holeCards[0]), parseCard(w.holeCards[1])] as [Card, Card],
               handRank: w.handRank,
               description: w.description,
-              bestCards: (w.bestCards || []).map(parseCardStr),
+              bestCards: (w.bestCards || []).map(parseCard),
               amount: w.amount,
             })),
             pot: 0,
@@ -847,12 +790,21 @@ export function useHeroSeat() {
  */
 export function useIsHeroTurn() {
   const { currentActorSeatIndex, heroSeatIndex, validActions } = useTableStore();
-  // Only return true if we have valid actions - otherwise state isn't fully synced yet
-  // This prevents showing fallback controls (Fold/All-In) when validActions is null
+
+  // Check that at least one action is actually possible
+  // This prevents showing fallback controls (Fold/All-In) when state isn't ready
+  const hasValidAction =
+    validActions !== null &&
+    (validActions.canFold ||
+      validActions.canCheck ||
+      validActions.canCall ||
+      validActions.canBet ||
+      validActions.canRaise);
+
   return (
     currentActorSeatIndex !== null &&
     currentActorSeatIndex === heroSeatIndex &&
-    validActions !== null
+    hasValidAction
   );
 }
 

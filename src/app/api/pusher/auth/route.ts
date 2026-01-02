@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import Pusher from 'pusher';
+import { getTableWithPlayers } from '@/lib/poker-engine-v2';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -47,10 +48,17 @@ export async function POST(request: Request) {
     // Presence channels: presence-{type}:{id}
 
     if (channelName.startsWith('private-table:')) {
-      // Private table channel for hole cards
-      // TODO: Verify player is seated at this table
+      // Private table channel for hole cards - verify player is seated
       const tableId = channelName.replace('private-table:', '');
-      // For MVP, allow access to any table
+      const { players } = getTableWithPlayers(tableId);
+      const isSeated = players.some(p => p.player_id === playerId);
+
+      if (!isSeated) {
+        return NextResponse.json(
+          { error: 'Not seated at this table' },
+          { status: 403 }
+        );
+      }
     }
 
     if (channelName.startsWith('presence-')) {
