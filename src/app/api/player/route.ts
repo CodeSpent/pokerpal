@@ -61,7 +61,11 @@ export async function POST(request: Request) {
       stack: err.stack?.split('\n').slice(0, 5).join('\n'),
     });
     return NextResponse.json(
-      { error: 'Failed to create player', details: err.message },
+      {
+        error: 'Failed to create player',
+        details: err.message,
+        cause: (err as any).cause?.message || 'unknown',
+      },
       { status: 500 }
     );
   }
