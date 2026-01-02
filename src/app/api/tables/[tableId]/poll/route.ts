@@ -1,0 +1,67 @@
+import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { handlePoll, getTableWithPlayers } from '@/lib/poker-engine-v2';
+
+const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
+
+/**
+ * GET /api/tables/[tableId]/poll
+ * Poll for table updates
+ *
+ * Query params:
+ * - version: last known table version
+ * - lastEventId: last known event ID
+ */
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ tableId: string }> }
+) {
+  try {
+    const cookieStore = await cookies();
+    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
+
+    if (!playerId) {
+      return NextResponse.json(
+        { error: 'Not authenticated' },
+        { status: 401 }
+      );
+    }
+
+    const { tableId } = await params;
+
+    // Verify table exists and player is seated
+    const { table, players } = getTableWithPlayers(tableId);
+
+    if (!table) {
+      return NextResponse.json(
+        { error: 'Table not found' },
+        { status: 404 }
+      );
+    }
+
+    const playerSeat = players.find((p) => p.player_id === playerId);
+
+    if (!playerSeat) {
+      return NextResponse.json(
+        { error: 'You are not seated at this table' },
+        { status: 403 }
+      );
+    }
+
+    // Get query params
+    const url = new URL(request.url);
+    const clientVersion = parseInt(url.searchParams.get('version') || '0', 10);
+    const lastEventId = parseInt(url.searchParams.get('lastEventId') || '0', 10);
+
+    // Get poll response
+    const pollResponse = handlePoll(tableId, clientVersion, lastEventId);
+
+    return NextResponse.json(pollResponse);
+  } catch (error) {
+    console.error('Error polling table:', error);
+    return NextResponse.json(
+      { error: 'Failed to poll table' },
+      { status: 500 }
+    );
+  }
+}

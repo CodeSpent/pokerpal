@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Grid3X3, Dices, Calculator, Menu, X } from "lucide-react";
+import { BookOpen, Grid3X3, Dices, Calculator, Menu, X, Gamepad2 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 
 const navigation = [
+  { name: "Play", href: "/play", icon: Gamepad2, highlight: true },
   { name: "PreFlop", href: "/preflop", icon: BookOpen },
   { name: "Ranges", href: "/ranges", icon: Grid3X3 },
   { name: "Scenarios", href: "/scenarios", icon: Dices },
@@ -43,13 +44,16 @@ export function Header() {
           {navigation.map((item) => {
             const Icon = item.icon;
             const isActive = pathname.startsWith(item.href);
+            const isHighlight = 'highlight' in item && item.highlight;
             return (
               <Link
                 key={item.name}
                 href={item.href}
                 className={cn(
                   "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors",
-                  isActive
+                  isHighlight && !isActive
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                    : isActive
                     ? "bg-zinc-800 text-foreground"
                     : "text-foreground-muted hover:text-foreground hover:bg-zinc-800/50"
                 )}
