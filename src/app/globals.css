@@ -14,6 +14,12 @@
     --action-fold: 239 68 68;
     --action-call: 59 130 246;
     --action-raise: 34 197 94;
+
+    /* New premium design tokens */
+    --surface-primary: 13 13 15;
+    --surface-secondary: 20 20 24;
+    --surface-tertiary: 26 26 32;
+    --accent-gold: 201 169 98;
   }
 
   * {
@@ -21,12 +27,58 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-surface-primary text-foreground antialiased;
+  }
+}
+
+@layer components {
+  /* Typography utilities for poker UI */
+  .text-chip-value {
+    @apply font-mono text-sm font-bold tracking-tight;
+  }
+
+  .text-player-name {
+    @apply font-medium text-sm truncate;
+  }
+
+  .text-stack {
+    @apply font-mono text-xs tabular-nums;
+  }
+
+  .text-pot {
+    @apply font-mono text-lg font-bold tracking-tight;
+  }
+
+  .text-action-label {
+    @apply font-medium text-sm tracking-wide;
+  }
+
+  .text-action-amount {
+    @apply font-mono text-xs opacity-70;
   }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Safe area insets for iOS */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* Glass morphism effect */
+  .glass {
+    @apply bg-surface-primary/95 backdrop-blur-sm;
+  }
+
+  /* Touch-friendly minimum sizes */
+  .touch-target {
+    @apply min-h-[48px] min-w-[48px];
   }
 }

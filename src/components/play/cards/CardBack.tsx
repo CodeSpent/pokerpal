@@ -19,31 +19,36 @@ export function CardBack({ size = 'md', className }: CardBackProps) {
     <motion.div
       className={cn(
         sizeClasses[size],
-        'relative rounded-lg bg-gradient-to-br from-blue-900 to-blue-950 shadow-lg select-none',
-        'border-2 border-blue-800',
-        'flex items-center justify-center',
+        'relative rounded-lg select-none overflow-hidden',
+        'bg-gradient-to-br from-surface-tertiary via-surface-secondary to-surface-primary',
+        'border border-surface-quaternary/50',
+        'shadow-md',
         className
       )}
     >
-      {/* Diamond pattern */}
-      <div className="absolute inset-1 rounded opacity-20">
+      {/* Subtle geometric pattern */}
+      <div className="absolute inset-0 opacity-[0.07]">
         <div
           className="w-full h-full"
           style={{
             backgroundImage: `
-              linear-gradient(45deg, transparent 40%, #fff 40%, #fff 60%, transparent 60%),
-              linear-gradient(-45deg, transparent 40%, #fff 40%, #fff 60%, transparent 60%)
+              repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 4px,
+                currentColor 4px,
+                currentColor 5px
+              )
             `,
-            backgroundSize: '8px 8px',
           }}
         />
       </div>
 
-      {/* Center emblem */}
-      <div className="relative w-6 h-6 flex items-center justify-center">
-        <div className="absolute w-full h-full bg-blue-700 rounded-full opacity-50" />
-        <span className="relative text-blue-300 font-bold text-xs">PP</span>
-      </div>
+      {/* Inner border accent */}
+      <div className="absolute inset-[3px] rounded-md border border-surface-tertiary/30" />
+
+      {/* Subtle center gradient */}
+      <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent" />
     </motion.div>
   );
 }
