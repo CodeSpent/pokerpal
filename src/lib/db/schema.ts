@@ -14,6 +14,7 @@ import {
   timestamp,
   unique,
   index,
+  boolean,
 } from 'drizzle-orm/pg-core';
 
 // =============================================================================
@@ -54,6 +55,7 @@ export const tournaments = pgTable(
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     startedAt: bigint('started_at', { mode: 'number' }),
     endedAt: bigint('ended_at', { mode: 'number' }),
+    countdownStartedAt: bigint('countdown_started_at', { mode: 'number' }),
   },
   (table) => [index('idx_tournaments_status').on(table.status)]
 );
@@ -69,6 +71,7 @@ export const tournamentRegistrations = pgTable(
       .notNull()
       .references(() => players.id),
     registeredAt: bigint('registered_at', { mode: 'number' }).notNull(),
+    isReady: boolean('is_ready').notNull().default(false),
   },
   (table) => [
     unique('uniq_tournament_player').on(table.tournamentId, table.playerId),

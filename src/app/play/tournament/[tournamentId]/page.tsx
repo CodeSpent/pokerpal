@@ -1,18 +1,25 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, use, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { usePlayerStore } from '@/stores/player-store';
-import { ArrowLeft, Users, Coins, Clock, Check, Lock, Eye, EyeOff, X, Play, Vote, Crown } from 'lucide-react';
+import { useChannel, useChannelEvent } from '@/hooks/usePusher';
+import { ArrowLeft, Users, Coins, Clock, Check, Lock, Eye, EyeOff, X, Play, Vote, Crown, Timer } from 'lucide-react';
+
+interface RegisteredPlayer {
+  id: string;
+  displayName: string;
+  isReady?: boolean;
+}
 
 interface TournamentDetails {
   id: string;
   name: string;
   status: string;
-  registeredPlayers: Array<{ id: string; displayName: string }>;
+  registeredPlayers: RegisteredPlayer[];
   maxPlayers: number;
   tableSize: number;
   startingChips: number;
@@ -24,6 +31,7 @@ interface TournamentDetails {
     isVotingActive: boolean;
     votes: string[];
   };
+  countdownStartedAt?: number;
 }
 
 export default function TournamentPage({
@@ -46,7 +54,124 @@ export default function TournamentPage({
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [isVoting, setIsVoting] = useState(false);
 
-  // Fetch tournament details
+  // Countdown state
+  const [countdownExpiresAt, setCountdownExpiresAt] = useState<number | null>(null);
+  const [countdownRemaining, setCountdownRemaining] = useState<number>(0);
+  const [isReady, setIsReady] = useState(false);
+  const [isMarkingReady, setIsMarkingReady] = useState(false);
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Subscribe to tournament channel
+  const tournamentChannel = useChannel(`tournament-${tournamentId}`);
+
+  // Pusher event handlers
+  const handlePlayerRegistered = useCallback((data: {
+    playerId: string;
+    playerName: string;
+    playerCount: number;
+    players: RegisteredPlayer[];
+  }) => {
+    setTournament((prev) => prev ? {
+      ...prev,
+      registeredPlayers: data.players,
+    } : null);
+  }, []);
+
+  const handlePlayerUnregistered = useCallback((data: {
+    playerId: string;
+    playerCount: number;
+    players: RegisteredPlayer[];
+  }) => {
+    setTournament((prev) => prev ? {
+      ...prev,
+      registeredPlayers: data.players,
+    } : null);
+  }, []);
+
+  const handleCountdownStarted = useCallback((data: {
+    expiresAt: number;
+    durationMs: number;
+    players: RegisteredPlayer[];
+  }) => {
+    setCountdownExpiresAt(data.expiresAt);
+    setTournament((prev) => prev ? {
+      ...prev,
+      registeredPlayers: data.players,
+    } : null);
+    // Reset ready state
+    setIsReady(false);
+  }, []);
+
+  const handlePlayerReady = useCallback((data: {
+    playerId: string;
+    readyCount: number;
+    playerCount: number;
+    allReady: boolean;
+    players: RegisteredPlayer[];
+  }) => {
+    setTournament((prev) => prev ? {
+      ...prev,
+      registeredPlayers: data.players,
+    } : null);
+    // Check if current player is now ready
+    if (data.playerId === playerId) {
+      setIsReady(true);
+    }
+  }, [playerId]);
+
+  const handleCountdownCancelled = useCallback(() => {
+    setCountdownExpiresAt(null);
+    setCountdownRemaining(0);
+    setIsReady(false);
+  }, []);
+
+  const handleGameStarting = useCallback((data: { tableIds: string[] }) => {
+    if (data.tableIds.length > 0) {
+      router.push(`/play/tournament/${tournamentId}/table/${data.tableIds[0]}`);
+    }
+  }, [router, tournamentId]);
+
+  // Bind Pusher events
+  useChannelEvent(tournamentChannel, 'PLAYER_REGISTERED', handlePlayerRegistered);
+  useChannelEvent(tournamentChannel, 'PLAYER_UNREGISTERED', handlePlayerUnregistered);
+  useChannelEvent(tournamentChannel, 'COUNTDOWN_STARTED', handleCountdownStarted);
+  useChannelEvent(tournamentChannel, 'PLAYER_READY', handlePlayerReady);
+  useChannelEvent(tournamentChannel, 'COUNTDOWN_CANCELLED', handleCountdownCancelled);
+  useChannelEvent(tournamentChannel, 'GAME_STARTING', handleGameStarting);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (!countdownExpiresAt) {
+      setCountdownRemaining(0);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, countdownExpiresAt - now);
+      setCountdownRemaining(remaining);
+
+      if (remaining <= 0) {
+        // Countdown expired - trigger game start
+        fetch(`/api/tournaments/${tournamentId}/countdown`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'expire' }),
+        }).catch(console.error);
+      }
+    };
+
+    updateCountdown();
+    countdownTimerRef.current = setInterval(updateCountdown, 100);
+
+    return () => {
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+      }
+    };
+  }, [countdownExpiresAt, tournamentId]);
+
+  // Fetch tournament details (initial load)
   useEffect(() => {
     const fetchTournament = async () => {
       try {
@@ -57,10 +182,11 @@ export default function TournamentPage({
           setTournament(data.tournament);
 
           // Check if current player is registered
-          const playerCookie = document.cookie
+          const playerCookieRaw = document.cookie
             .split('; ')
             .find((row) => row.startsWith('pokerpal-player-id='))
             ?.split('=')[1];
+          const playerCookie = playerCookieRaw ? decodeURIComponent(playerCookieRaw) : null;
 
           if (playerCookie) {
             setPlayerId(playerCookie);
@@ -68,11 +194,26 @@ export default function TournamentPage({
               (p: { id: string }) => p.id === playerCookie
             );
             setIsRegistered(registered);
+
+            // Check if player is already ready
+            const playerData = data.tournament.registeredPlayers.find(
+              (p: RegisteredPlayer) => p.id === playerCookie
+            );
+            if (playerData?.isReady) {
+              setIsReady(true);
+            }
+          }
+
+          // If tournament has active countdown, set it
+          if (data.tournament.countdownStartedAt) {
+            const expiresAt = data.tournament.countdownStartedAt + 20000;
+            if (expiresAt > Date.now()) {
+              setCountdownExpiresAt(expiresAt);
+            }
           }
 
           // If tournament started and we're registered, navigate to table
           if (data.tournament.status === 'running' && data.tournament.tables.length > 0) {
-            // Find which table the player is at
             router.push(`/play/tournament/${tournamentId}/table/${data.tournament.tables[0]}`);
           }
         }
@@ -84,10 +225,6 @@ export default function TournamentPage({
     };
 
     fetchTournament();
-
-    // Poll for updates
-    const interval = setInterval(fetchTournament, 3000);
-    return () => clearInterval(interval);
   }, [tournamentId, router]);
 
   const handleRegister = async (providedPassword?: string) => {
@@ -167,18 +304,36 @@ export default function TournamentPage({
     setError(null);
 
     try {
-      const res = await fetch(`/api/tournaments/${tournamentId}/early-start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
+      // Use the new countdown API for starting
+      if (action === 'force' || action === 'initiate') {
+        const res = await fetch(`/api/tournaments/${tournamentId}/countdown`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'start' }),
+        });
 
-      const data = await res.json();
+        const data = await res.json();
 
-      if (data.tournamentStarted && data.tables?.length > 0) {
-        router.push(`/play/tournament/${tournamentId}/table/${data.tables[0]}`);
-      } else if (!data.success) {
-        setError(data.error || 'Failed to process request');
+        if (data.countdownStarted) {
+          setCountdownExpiresAt(data.expiresAt);
+        } else if (data.error) {
+          setError(data.error);
+        }
+      } else {
+        // Fallback to old early-start API for voting
+        const res = await fetch(`/api/tournaments/${tournamentId}/early-start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        });
+
+        const data = await res.json();
+
+        if (data.tournamentStarted && data.tables?.length > 0) {
+          router.push(`/play/tournament/${tournamentId}/table/${data.tables[0]}`);
+        } else if (!data.success) {
+          setError(data.error || 'Failed to process request');
+        }
       }
     } catch (err) {
       setError('Failed to process request');
@@ -187,9 +342,54 @@ export default function TournamentPage({
     }
   };
 
+  const handleReady = async () => {
+    setIsMarkingReady(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/tournaments/${tournamentId}/ready`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await res.json();
+
+      if (data.ready) {
+        setIsReady(true);
+        if (data.tournamentStarted && data.tables?.length > 0) {
+          router.push(`/play/tournament/${tournamentId}/table/${data.tables[0]}`);
+        }
+      } else if (data.error) {
+        setError(data.error);
+      }
+    } catch (err) {
+      setError('Failed to mark ready');
+    } finally {
+      setIsMarkingReady(false);
+    }
+  };
+
   const isHost = playerId === tournament?.creatorId;
   const hasVoted = tournament?.earlyStart.votes.includes(playerId || '');
   const canStartEarly = tournament && tournament.registeredPlayers.length >= 2;
+  const isCountdownActive = countdownExpiresAt !== null && countdownRemaining > 0;
+  const countdownSeconds = Math.ceil(countdownRemaining / 1000);
+  const readyCount = tournament?.registeredPlayers.filter(p => p.isReady).length ?? 0;
+
+  // Helper to check if a player is the current user
+  const isCurrentPlayer = (playerIdToCheck: string) => {
+    if (playerId && playerIdToCheck === playerId) return true;
+    // Fallback: check cookie directly in case state hasn't updated
+    if (typeof document !== 'undefined') {
+      const cookieRaw = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith('pokerpal-player-id='))
+        ?.split('=')[1];
+      const cookieValue = cookieRaw ? decodeURIComponent(cookieRaw) : null;
+      if (cookieValue && playerIdToCheck === cookieValue) return true;
+    }
+    return false;
+  };
 
   if (isLoading) {
     return (
@@ -266,11 +466,23 @@ export default function TournamentPage({
               </div>
             </div>
             <div className="text-center">
-              <div className="text-xs text-zinc-500 mb-1">Blind Levels</div>
-              <div className="flex items-center justify-center gap-1 text-white">
-                <Clock className="w-4 h-4 text-amber-400" />
-                <span className="font-mono text-lg">10 min</span>
-              </div>
+              {isCountdownActive ? (
+                <>
+                  <div className="text-xs text-amber-400 mb-1">Starting in</div>
+                  <div className="flex items-center justify-center gap-1 text-amber-400">
+                    <Timer className="w-4 h-4" />
+                    <span className="font-mono text-lg font-bold">{countdownSeconds}s</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-xs text-zinc-500 mb-1">Blind Levels</div>
+                  <div className="flex items-center justify-center gap-1 text-white">
+                    <Clock className="w-4 h-4 text-amber-400" />
+                    <span className="font-mono text-lg">10 min</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -303,13 +515,15 @@ export default function TournamentPage({
                 <Check className="inline-block w-4 h-4 mr-2" />
                 Registered
               </div>
-              <button
-                onClick={handleUnregister}
-                disabled={isRegistering}
-                className="px-4 py-3 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors"
-              >
-                Leave
-              </button>
+              {!isCountdownActive && (
+                <button
+                  onClick={handleUnregister}
+                  disabled={isRegistering}
+                  className="px-4 py-3 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors"
+                >
+                  Leave
+                </button>
+              )}
             </div>
           ) : (
             <button
@@ -335,8 +549,9 @@ export default function TournamentPage({
           )}
         </motion.div>
 
-        {/* Early Start Controls - Only show if registered and not full */}
-        {isRegistered && tournament.registeredPlayers.length < tournament.maxPlayers && canStartEarly && (
+
+        {/* Early Start Controls - Only show if registered, not full, and no countdown */}
+        {isRegistered && tournament.registeredPlayers.length < tournament.maxPlayers && canStartEarly && !isCountdownActive && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -355,33 +570,18 @@ export default function TournamentPage({
                     <p className="text-sm text-zinc-400">
                       As the host, you can start the tournament early with the current players.
                     </p>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => handleEarlyStart('initiate')}
-                        disabled={isVoting}
-                        className={cn(
-                          'flex-1 py-3 rounded-lg font-medium transition-colors',
-                          'bg-amber-600/20 border border-amber-500/50 text-amber-400',
-                          'hover:bg-amber-600/30',
-                          'disabled:opacity-50 disabled:cursor-not-allowed'
-                        )}
-                      >
-                        <Vote className="inline-block w-4 h-4 mr-2" />
-                        {isVoting ? 'Processing...' : 'Request Vote to Start'}
-                      </button>
-                      <button
-                        onClick={() => handleEarlyStart('force')}
-                        disabled={isVoting}
-                        className={cn(
-                          'flex-1 py-3 rounded-lg font-medium transition-colors',
-                          'bg-emerald-600 text-white hover:bg-emerald-700',
-                          'disabled:opacity-50 disabled:cursor-not-allowed'
-                        )}
-                      >
-                        <Play className="inline-block w-4 h-4 mr-2" />
-                        {isVoting ? 'Starting...' : 'Force Start Now'}
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleEarlyStart('force')}
+                      disabled={isVoting}
+                      className={cn(
+                        'w-full py-3 rounded-lg font-medium transition-colors',
+                        'bg-emerald-600 text-white hover:bg-emerald-700',
+                        'disabled:opacity-50 disabled:cursor-not-allowed'
+                      )}
+                    >
+                      <Play className="inline-block w-4 h-4 mr-2" />
+                      {isVoting ? 'Starting...' : 'Start Tournament'}
+                    </button>
                   </div>
                 ) : (
                   <p className="text-sm text-zinc-400">
@@ -492,7 +692,39 @@ export default function TournamentPage({
                       <Crown className="w-4 h-4 text-amber-400" />
                     )}
                   </span>
-                  {tournament.earlyStart.isVotingActive && (
+                  {isCountdownActive && (
+                    isCurrentPlayer(player.id) ? (
+                      // Current player - show clickable button or ready state
+                      player.isReady || isReady ? (
+                        <span className="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">
+                          Ready
+                        </span>
+                      ) : (
+                        <button
+                          onClick={handleReady}
+                          disabled={isMarkingReady}
+                          className={cn(
+                            'text-xs px-3 py-1 rounded transition-colors',
+                            'bg-emerald-600 text-white hover:bg-emerald-500',
+                            'disabled:opacity-50 disabled:cursor-not-allowed'
+                          )}
+                        >
+                          {isMarkingReady ? '...' : 'Ready'}
+                        </button>
+                      )
+                    ) : (
+                      // Other players - show status
+                      <span className={cn(
+                        'text-xs px-2 py-1 rounded',
+                        player.isReady
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : 'bg-zinc-700 text-zinc-400'
+                      )}>
+                        {player.isReady ? 'Ready' : 'Waiting'}
+                      </span>
+                    )
+                  )}
+                  {!isCountdownActive && tournament.earlyStart.isVotingActive && (
                     <span className={cn(
                       'text-xs px-2 py-1 rounded',
                       tournament.earlyStart.votes.includes(player.id)

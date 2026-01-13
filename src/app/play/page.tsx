@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { usePlayerStore, useNeedsRegistration } from '@/stores/player-store';
+import { useChannel, useChannelEvent } from '@/hooks/usePusher';
 import { Plus, Users, Trophy, Coins, ArrowLeft, RefreshCw, Lock } from 'lucide-react';
 import type { TournamentSummary } from '@/lib/poker-engine-v2/types';
 
@@ -19,6 +20,22 @@ export default function LobbyPage() {
   const [showNameInput, setShowNameInput] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // Subscribe to tournaments channel for real-time updates
+  const tournamentsChannel = useChannel('tournaments');
+
+  // Handle new tournament created
+  const handleTournamentCreated = useCallback((data: TournamentSummary) => {
+    setTournaments((prev) => {
+      // Avoid duplicates
+      if (prev.some((t) => t.id === data.id)) {
+        return prev;
+      }
+      return [data, ...prev];
+    });
+  }, []);
+
+  useChannelEvent(tournamentsChannel, 'TOURNAMENT_CREATED', handleTournamentCreated);
 
   // Check if player needs to set name
   useEffect(() => {

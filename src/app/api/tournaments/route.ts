@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { tournamentRepo, playerRepo, eventRepo } from '@/lib/db/repositories';
 import { now } from '@/lib/db/transaction';
+import { getPusher, channels, tournamentEvents } from '@/lib/pusher-server';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
@@ -127,6 +128,21 @@ export async function POST(request: Request) {
       tournamentId: tournament.id,
       creatorId: playerId,
     }, 1);
+
+    // Broadcast via Pusher to lobby
+    const pusher = getPusher();
+    if (pusher) {
+      await pusher.trigger(channels.tournaments, tournamentEvents.TOURNAMENT_CREATED, {
+        id: tournament.id,
+        name: tournament.name,
+        status: tournament.status,
+        registeredCount: 1,
+        maxPlayers: tournament.maxPlayers,
+        startingChips: tournament.startingChips,
+        createdAt: tournament.createdAt,
+        isPasswordProtected: false,
+      }).catch(err => console.error('Failed to broadcast TOURNAMENT_CREATED:', err));
+    }
 
     return NextResponse.json({
       tournament: {

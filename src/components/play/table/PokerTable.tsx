@@ -52,6 +52,7 @@ function PotDisplay({ amount, sidePots }: { amount: number; sidePots?: { amount:
 
 export function PokerTable({ className }: PokerTableProps) {
   const {
+    tableId,
     seats,
     heroSeatIndex,
     communityCards,
@@ -60,6 +61,7 @@ export function PokerTable({ className }: PokerTableProps) {
     currentActorSeatIndex,
     phase,
     showdownResult,
+    shownCards,
   } = useTableStore();
 
   // Check if we're in a showdown/winner display phase
@@ -103,6 +105,7 @@ export function PokerTable({ className }: PokerTableProps) {
                   amount: winnerData.amount,
                   bestCards: winnerData.bestCards,
                 } : undefined}
+                shownCards={shownCards[seat.index]}
               />
             );
           })}
@@ -174,6 +177,7 @@ export function PokerTable({ className }: PokerTableProps) {
                   })()
                 : undefined
             }
+            tableId={tableId ?? undefined}
           />
         </div>
       )}

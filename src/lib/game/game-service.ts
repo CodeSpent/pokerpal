@@ -20,7 +20,7 @@ import { Hand as PokersolverHand } from 'pokersolver';
 // Types
 // =============================================================================
 
-export type HandPhase = 'dealing' | 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'awarding' | 'complete';
+export type HandPhase = 'dealing' | 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'awarding' | 'hand-complete' | 'complete';
 export type PlayerStatus = 'waiting' | 'active' | 'acted' | 'folded' | 'all_in' | 'sitting_out' | 'eliminated';
 export type ActionType = 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'all_in' | 'post_sb' | 'post_bb' | 'post_ante';
 
@@ -66,6 +66,15 @@ export interface SubmitActionParams {
   bypassExpiry?: boolean;
 }
 
+export interface ActionDetails {
+  seatIndex: number;
+  action: ActionType;
+  actualAmount: number;
+  newPlayerBet: number;
+  newStack: number;
+  isAllIn: boolean;
+}
+
 export interface SubmitActionResult {
   hand: Hand;
   players: Array<TablePlayer & { name: string; avatar: string | null }>;
@@ -73,6 +82,7 @@ export interface SubmitActionResult {
   phaseChanged: boolean;
   newPhase?: HandPhase;
   isHandComplete: boolean;
+  actionDetails: ActionDetails;
 }
 
 export interface PollResponse {
@@ -131,6 +141,7 @@ const COMMUNITY_CARDS_BY_PHASE: Record<HandPhase, number> = {
   river: 5,
   showdown: 5,
   awarding: 5,
+  'hand-complete': 5,
   complete: 5,
 };
 
@@ -215,7 +226,8 @@ function getPhaseAfterBetting(
   players: Array<{ status: string; currentBet: number }>
 ): HandPhase {
   if (shouldAwardWithoutShowdown(players)) return 'awarding';
-  if (shouldGoToShowdown(hand, players)) return 'showdown';
+  // Progress through streets naturally even when all-in to build anticipation
+  // Only go to showdown when we've reached the river
   const nextPhase = getNextBettingPhase(currentPhase);
   if (nextPhase) return nextPhase;
   if (currentPhase === 'river') return 'showdown';
@@ -274,6 +286,57 @@ function isHeadsUp(players: Array<{ status: string }>): boolean {
   return players.filter((p) => !['sitting_out', 'eliminated'].includes(p.status)).length === 2;
 }
 
+// Delay between streets when running out all-in hands (milliseconds)
+const ALL_IN_STREET_DELAY_MS = 2000;
+
+/**
+ * Schedule automatic street progression when all players are all-in.
+ * This creates anticipation by dealing each street one at a time with delays.
+ */
+function scheduleAllInStreetProgression(handId: string, tableId: string, currentPhase: HandPhase): void {
+  setTimeout(async () => {
+    try {
+      const db = getDb();
+      const [hand] = await db.select().from(hands).where(eq(hands.id, handId));
+      if (!hand || hand.phase === 'complete' || hand.phase === 'showdown') return;
+
+      const { players } = await tableRepo.getTableWithPlayers(tableId);
+
+      // Check if we should proceed to showdown (on river) or continue to next street
+      const phase = hand.phase as HandPhase;
+      if (phase === 'river') {
+        // We're on river, go to showdown
+        await runShowdown(handId, tableId, players, phase);
+      } else {
+        // Deal next street
+        const nextPhase = getNextBettingPhase(phase);
+        if (nextPhase) {
+          await advanceToNextPhase(handId, tableId, players, nextPhase);
+
+          // Broadcast phase change
+          if (pusher) {
+            const [updatedHand] = await db.select().from(hands).where(eq(hands.id, handId));
+            const communityCards: string[] = JSON.parse(updatedHand?.communityCards || '[]');
+            pusher.trigger(`table-${tableId}`, 'PHASE_CHANGED', {
+              eventId: `phase-${nextPhase}-${handId}`,
+              phase: nextPhase,
+              communityCards,
+            }).catch((err) => console.error('[scheduleAllInStreetProgression] Failed to broadcast PHASE_CHANGED:', err));
+          }
+
+          // Schedule next advancement
+          scheduleAllInStreetProgression(handId, tableId, nextPhase);
+        } else {
+          // No more streets, go to showdown
+          await runShowdown(handId, tableId, players, phase);
+        }
+      }
+    } catch (err) {
+      console.error('[scheduleAllInStreetProgression] Error:', err);
+    }
+  }, ALL_IN_STREET_DELAY_MS);
+}
+
 function findNextActiveSeat(players: Array<{ seatIndex: number }>, currentSeat: number): number {
   const seats = players.map((p) => p.seatIndex).sort((a, b) => a - b);
   const numSeats = Math.max(...seats) + 1;
@@ -311,7 +374,11 @@ export function getValidActions(params: {
     minRaise: 0,
     maxRaise: 0,
   };
-  if (status !== 'active') return result;
+  // Compute validActions for any player that CAN act (not folded/all_in/sitting_out/eliminated)
+  // The actual turn check (currentActorSeatIndex) is done separately by the client
+  // This allows computing validActions for the next actor before their status is set to 'active'
+  const cannotActStatuses = ['folded', 'all_in', 'sitting_out', 'eliminated'];
+  if (cannotActStatuses.includes(status)) return result;
   result.canFold = true;
   const toCall = currentBet - playerBet;
   if (toCall <= 0) {
@@ -414,9 +481,16 @@ export async function advanceGameState(tableId: string): Promise<AdvanceResult> 
 
 async function cleanupBrokenHands(tableId: string): Promise<number> {
   const db = getDb();
-  const result = await db
+  // Only delete 'dealing' hands that are older than 10 seconds (stale/broken)
+  // This prevents deleting hands that are actively being set up
+  const staleThreshold = now() - 10000;
+  await db
     .delete(hands)
-    .where(and(eq(hands.tableId, tableId), eq(hands.phase, 'dealing')));
+    .where(and(
+      eq(hands.tableId, tableId),
+      eq(hands.phase, 'dealing'),
+      sql`${hands.startedAt} < ${staleThreshold}`
+    ));
   return 0; // Drizzle doesn't easily return affected count
 }
 
@@ -470,6 +544,8 @@ async function maybeRecoverActorState(tableId: string): Promise<boolean> {
 
 async function maybeCompleteShowdown(tableId: string): Promise<boolean> {
   const db = getDb();
+  // Handle hands stuck in 'showdown' phase (the only terminal phase in the database that can get stuck)
+  // Note: 'awarding' and 'hand-complete' are client-side only phases in the Zustand store
   const [hand] = await db
     .select()
     .from(hands)
@@ -488,20 +564,21 @@ async function maybeCompleteShowdown(tableId: string): Promise<boolean> {
     if (showdownAge < 7000) return false;
   }
 
-  console.log(`[advanceGameState] Completing stale showdown for hand ${hand.id}`);
+  console.log(`[maybeCompleteShowdown] Completing stale showdown for hand ${hand.id}`);
 
-  await db
-    .update(hands)
-    .set({ phase: 'complete', endedAt: now(), currentActorSeat: null, actionDeadline: null })
-    .where(and(eq(hands.id, hand.id), eq(hands.phase, 'showdown')));
+  // Fetch current player states for debugging
+  const { players: debugPlayers, table: debugTable } = await tableRepo.getTableWithPlayers(tableId);
+  console.log(`[maybeCompleteShowdown] Current players before completeHand:`,
+    debugPlayers.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
+  console.log(`[maybeCompleteShowdown] Table status: ${debugTable?.status}`);
 
-  if (pusher) {
-    pusher.trigger(`table-${tableId}`, 'HAND_COMPLETE', {
-      eventId: `hand-complete-recovery-${hand.id}`,
-      handNumber: hand.handNumber,
-      winners: [],
-    }).catch((err) => console.error('[advanceGameState] Failed to broadcast HAND_COMPLETE:', err));
-  }
+  // Use completeHand which handles:
+  // 1. Marking hand as complete
+  // 2. Broadcasting HAND_COMPLETE
+  // 3. Marking eliminated players (stack === 0)
+  // 4. Detecting tournament winner
+  // 5. Starting next hand
+  await completeHand(hand.id, tableId);
 
   return true;
 }
@@ -525,7 +602,42 @@ async function maybeStartNewHand(tableId: string): Promise<{ started: boolean; h
   const { table, players } = await tableRepo.getTableWithPlayers(tableId);
   if (!table) return { started: false, hand: null };
 
-  const activePlayers = players.filter((p) => !['eliminated', 'sitting_out'].includes(p.status));
+  // Skip if table/tournament is already complete (avoid duplicate broadcasts)
+  if (table.status === 'complete') {
+    console.log(`[maybeStartNewHand] Table status is 'complete', skipping new hand`);
+    return { started: false, hand: null };
+  }
+
+  // Get players with chips (not eliminated and stack > 0)
+  const activePlayers = players.filter((p) => !['eliminated', 'sitting_out'].includes(p.status) && p.stack > 0);
+  console.log(`[maybeStartNewHand] Active players (stack > 0, not eliminated):`,
+    activePlayers.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
+
+  // Tournament winner - only 1 player with chips remaining
+  if (activePlayers.length === 1) {
+    const winner = activePlayers[0];
+    console.log(`[maybeStartNewHand] Tournament winner detected: ${winner.name}`);
+
+    // Mark tournament and table as complete
+    await tournamentRepo.updateTournamentStatus(table.tournamentId, 'complete');
+    await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
+
+    // Broadcast tournament complete
+    if (pusher) {
+      pusher.trigger(`table-${tableId}`, 'TOURNAMENT_COMPLETE', {
+        eventId: `tournament-complete-${table.tournamentId}`,
+        winner: {
+          playerId: winner.playerId,
+          name: winner.name,
+          seatIndex: winner.seatIndex,
+          stack: winner.stack,
+        },
+      }).catch((err) => console.error('[maybeStartNewHand] Failed to broadcast TOURNAMENT_COMPLETE:', err));
+    }
+
+    return { started: false, hand: null };
+  }
+
   if (activePlayers.length < 2) return { started: false, hand: null };
 
   // Get the next hand number
@@ -600,6 +712,17 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
   const db = getDb();
   const timestamp = now();
 
+  // Idempotency guard: check if there's already an active hand
+  const [existingHand] = await db
+    .select()
+    .from(hands)
+    .where(and(eq(hands.tableId, tableId), ne(hands.phase, 'complete')))
+    .limit(1);
+
+  if (existingHand) {
+    throw new Error(`Active hand already exists: ${existingHand.id} (phase: ${existingHand.phase})`);
+  }
+
   // Get table
   const table = await tableRepo.getTable(tableId);
   if (!table) throw new Error('Table not found');
@@ -608,11 +731,16 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
   const tournament = await tournamentRepo.getTournament(table.tournamentId);
   const turnTimerSeconds = tournament?.turnTimerSeconds;
 
-  // Get active players
+  // Get active players (must have chips and not be eliminated/sitting out)
   const { players } = await tableRepo.getTableWithPlayers(tableId);
-  const activePlayers = players.filter((p) => !['eliminated', 'sitting_out'].includes(p.status));
+  const activePlayers = players.filter((p) =>
+    !['eliminated', 'sitting_out'].includes(p.status) && p.stack > 0
+  );
+  console.log(`[startNewHand] Active players for new hand:`,
+    activePlayers.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
 
   if (activePlayers.length < 2) {
+    console.log(`[startNewHand] ERROR: Only ${activePlayers.length} active players, need at least 2`);
     throw new Error('Need at least 2 players to start a hand');
   }
 
@@ -712,8 +840,9 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
   // Update hand with pot
   await db.update(hands).set({ currentBet: table.bigBlind, pot: totalPot }).where(eq(hands.id, handId));
 
-  // Deal hole cards
+  // Deal hole cards and broadcast to private channels
   let deckIndex = 0;
+  const dealtCards: Array<{ playerId: string; cards: [Card, Card] }> = [];
   for (const player of activePlayers) {
     const card1 = deck[deckIndex++];
     const card2 = deck[deckIndex++];
@@ -721,11 +850,24 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
       .update(tablePlayers)
       .set({ holeCard1: cardToString(card1), holeCard2: cardToString(card2) })
       .where(and(eq(tablePlayers.tableId, tableId), eq(tablePlayers.seatIndex, player.seatIndex)));
+    dealtCards.push({ playerId: player.playerId, cards: [card1, card2] });
   }
 
   // Update deck
   const remainingDeck = deck.slice(deckIndex).map(cardToString);
   await db.update(hands).set({ deck: JSON.stringify(remainingDeck) }).where(eq(hands.id, handId));
+
+  // Broadcast hole cards to each player's private channel
+  if (pusher) {
+    for (const { playerId, cards } of dealtCards) {
+      pusher.trigger(`private-player-${playerId}`, 'HOLE_CARDS_DEALT', {
+        eventId: `hole-cards-${handId}-${playerId}`,
+        cards, // Cards in { rank, suit } format
+      }).catch((err) => {
+        console.error(`[startNewHand] Failed to send hole cards to player ${playerId}:`, err);
+      });
+    }
+  }
 
   // Get first actor
   const firstActorSeat = headsUp
@@ -922,31 +1064,7 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
     let newPhase: HandPhase | undefined;
     let isHandComplete = false;
 
-    if (shouldAwardWithoutShowdown(mappedUpdatedPlayers)) {
-      // Award pot to last remaining player
-      const winner = updatedPlayers.find((p) => !INACTIVE_STATUSES.includes(p.status as PlayerStatus));
-      if (winner) {
-        await db
-          .update(tablePlayers)
-          .set({ stack: sql`${tablePlayers.stack} + ${newPot}` })
-          .where(and(eq(tablePlayers.tableId, tableId), eq(tablePlayers.seatIndex, winner.seatIndex)));
-
-        if (pusher) {
-          pusher.trigger(`table-${tableId}`, 'POT_AWARDED', {
-            eventId: `pot-awarded-${hand.id}`,
-            playerId: winner.playerId,
-            seatIndex: winner.seatIndex,
-            amount: newPot,
-            showdown: false,
-          }).catch((err) => console.error('Failed to broadcast POT_AWARDED:', err));
-        }
-      }
-
-      await db.update(hands).set({ phase: 'complete', endedAt: now() }).where(eq(hands.id, hand.id));
-      phaseChanged = true;
-      newPhase = 'complete';
-      isHandComplete = true;
-    } else if (isBettingComplete(updatedHand, mappedUpdatedPlayers)) {
+    if (isBettingComplete(updatedHand, mappedUpdatedPlayers)) {
       const nextPhaseValue = getPhaseAfterBetting(hand.phase as HandPhase, updatedHand, mappedUpdatedPlayers);
       phaseChanged = true;
       newPhase = nextPhaseValue;
@@ -955,6 +1073,7 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
         await runShowdown(hand.id, tableId, updatedPlayers, hand.phase as HandPhase);
         isHandComplete = true;
       } else if (nextPhaseValue === 'awarding') {
+        // Non-showdown win: award pot to last remaining player
         const winner = updatedPlayers.find((p) => !INACTIVE_STATUSES.includes(p.status as PlayerStatus));
         if (winner) {
           await db
@@ -965,8 +1084,128 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
         await db.update(hands).set({ phase: 'complete', endedAt: now() }).where(eq(hands.id, hand.id));
         newPhase = 'complete';
         isHandComplete = true;
+
+        // Broadcast WINNER event for non-showdown wins
+        if (pusher && winner) {
+          pusher.trigger(`table-${tableId}`, 'WINNER', {
+            eventId: `winner-${hand.id}`,
+            winners: [{
+              playerId: winner.playerId,
+              seatIndex: winner.seatIndex,
+              amount: newPot,
+            }],
+          }).catch((err) => console.error('[submitAction] Failed to broadcast WINNER:', err));
+        }
+
+        // Broadcast HAND_COMPLETE and schedule next hand
+        if (pusher) {
+          pusher.trigger(`table-${tableId}`, 'HAND_COMPLETE', {
+            eventId: `hand-complete-${hand.id}`,
+            handNumber: hand.handNumber,
+            winners: winner ? [{
+              playerId: winner.playerId,
+              seatIndex: winner.seatIndex,
+              amount: newPot,
+              holeCards: [winner.holeCard1, winner.holeCard2].filter(Boolean),
+              handRank: 'uncalled',
+              description: 'Uncalled bet',
+            }] : [],
+          }).catch((err) => console.error('[submitAction] Failed to broadcast HAND_COMPLETE:', err));
+        }
+
+        // Re-fetch players AFTER pot is awarded to get accurate stack values
+        const { players: playersAfterPot, table: refreshedTable } = await tableRepo.getTableWithPlayers(tableId);
+
+        // Mark eliminated players (those with 0 chips)
+        for (const p of playersAfterPot) {
+          if (p.stack === 0 && p.status !== 'eliminated') {
+            await db.update(tablePlayers).set({ status: 'eliminated' }).where(eq(tablePlayers.id, p.id));
+          }
+        }
+
+        // Re-fetch to get updated statuses after elimination
+        const { players: refreshedAfterElim } = await tableRepo.getTableWithPlayers(tableId);
+        const remainingPlayers = refreshedAfterElim.filter((p) => p.stack > 0 && p.status !== 'eliminated');
+
+        // Tournament winner - only one player left
+        if (remainingPlayers.length === 1 && refreshedTable) {
+          const tournamentWinner = remainingPlayers[0];
+          console.log(`[submitAction] Tournament winner: ${tournamentWinner.name}`);
+
+          await tournamentRepo.updateTournamentStatus(refreshedTable.tournamentId, 'complete');
+          await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
+
+          if (pusher) {
+            pusher.trigger(`table-${tableId}`, 'TOURNAMENT_COMPLETE', {
+              eventId: `tournament-complete-${refreshedTable.tournamentId}`,
+              winner: {
+                playerId: tournamentWinner.playerId,
+                name: tournamentWinner.name,
+                seatIndex: tournamentWinner.seatIndex,
+                stack: tournamentWinner.stack,
+              },
+            }).catch((err) => console.error('[submitAction] Failed to broadcast TOURNAMENT_COMPLETE:', err));
+          }
+        } else if (remainingPlayers.length >= 2) {
+          // Schedule next hand (with delay for UI transition)
+          setTimeout(async () => {
+            try {
+              const nextHandNumber = (hand.handNumber || 0) + 1;
+              const newHand = await startNewHand(tableId, nextHandNumber);
+
+              if (pusher && newHand) {
+                const { table: tableForHand, players: playersForHand } = await tableRepo.getTableWithPlayers(tableId);
+                const firstActorPlayer = playersForHand.find((p) => p.seatIndex === newHand.currentActorSeat);
+                const toCall = Math.max(0, newHand.currentBet - (firstActorPlayer?.currentBet || 0));
+                const validActionsForActor = firstActorPlayer && tableForHand
+                  ? getValidActions({
+                      status: firstActorPlayer.status,
+                      currentBet: newHand.currentBet,
+                      playerBet: firstActorPlayer.currentBet,
+                      playerStack: firstActorPlayer.stack,
+                      minRaise: newHand.minRaise,
+                      bigBlind: tableForHand.bigBlind,
+                      canCheck: toCall === 0,
+                    })
+                  : null;
+
+                pusher.trigger(`table-${tableId}`, 'HAND_STARTED', {
+                  eventId: `hand-started-${newHand.handNumber}`,
+                  handNumber: newHand.handNumber,
+                  dealerSeatIndex: newHand.dealerSeat,
+                  smallBlindSeatIndex: newHand.smallBlindSeat,
+                  bigBlindSeatIndex: newHand.bigBlindSeat,
+                  firstActorSeat: newHand.currentActorSeat,
+                  blinds: tableForHand ? { sb: tableForHand.smallBlind, bb: tableForHand.bigBlind } : undefined,
+                }).catch((err) => console.error('[submitAction] Failed to broadcast HAND_STARTED:', err));
+
+                pusher.trigger(`table-${tableId}`, 'TURN_STARTED', {
+                  eventId: `turn-${newHand.currentActorSeat}-${newHand.actionDeadline ?? 'unlimited'}`,
+                  seatIndex: newHand.currentActorSeat,
+                  expiresAt: newHand.actionDeadline,
+                  isUnlimited: newHand.actionDeadline === null,
+                  validActions: validActionsForActor,
+                }).catch((err) => console.error('[submitAction] Failed to broadcast TURN_STARTED:', err));
+              }
+            } catch (err) {
+              console.error('[submitAction] Failed to start next hand:', err);
+            }
+          }, 2000);
+        }
       } else {
         await advanceToNextPhase(hand.id, tableId, updatedPlayers, nextPhaseValue);
+
+        // Broadcast phase change with community cards
+        if (pusher) {
+          const [handAfterAdvance] = await db.select().from(hands).where(eq(hands.id, hand.id));
+          const communityCards: string[] = JSON.parse(handAfterAdvance?.communityCards || '[]');
+          pusher.trigger(`table-${tableId}`, 'PHASE_CHANGED', {
+            eventId: `phase-${nextPhaseValue}-${hand.id}`,
+            phase: nextPhaseValue,
+            communityCards,
+          }).catch((err) => console.error('[submitAction] Failed to broadcast PHASE_CHANGED:', err));
+        }
+
         const { players: refreshedPlayers } = await tableRepo.getTableWithPlayers(tableId);
         const mappedRefreshed = refreshedPlayers.map((p) => ({ seatIndex: p.seatIndex, status: p.status }));
         const headsUpNow = isHeadsUp(mappedRefreshed);
@@ -974,6 +1213,13 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
         if (firstActor) {
           nextActorSeat = firstActor.seatIndex;
           await setNextActor(hand.id, tableId, firstActor.seatIndex);
+        } else {
+          // No one can act - all players are all-in
+          // Auto-advance through streets with delays to build anticipation
+          const [updatedHandForPhase] = await db.select().from(hands).where(eq(hands.id, hand.id));
+          if (updatedHandForPhase) {
+            scheduleAllInStreetProgression(hand.id, tableId, updatedHandForPhase.phase as HandPhase);
+          }
         }
       }
     } else {
@@ -997,6 +1243,14 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
         phaseChanged,
         newPhase,
         isHandComplete,
+        actionDetails: {
+          seatIndex: player.seatIndex,
+          action: normalizedAction,
+          actualAmount,
+          newPlayerBet,
+          newStack,
+          isAllIn,
+        },
       },
     };
   } catch (error) {
@@ -1254,12 +1508,27 @@ async function completeHand(
 ): Promise<void> {
   const db = getDb();
 
-  await db
+  // Idempotency guard: only complete if hand is still in showdown phase
+  // This prevents double completion from concurrent setTimeout + maybeCompleteShowdown
+  const [currentHand] = await db.select().from(hands).where(eq(hands.id, handId));
+  if (!currentHand || currentHand.phase === 'complete') {
+    console.log(`[completeHand] Hand ${handId} already completed or not found, skipping`);
+    return;
+  }
+
+  // Use atomic update with phase check for extra safety
+  const result = await db
     .update(hands)
     .set({ phase: 'complete', endedAt: now(), currentActorSeat: null, actionDeadline: null })
-    .where(eq(hands.id, handId));
+    .where(and(eq(hands.id, handId), ne(hands.phase, 'complete')));
 
+  // If no rows updated, hand was already completed by another process
+  // Note: Drizzle doesn't easily return affected count, so we re-check
   const [hand] = await db.select().from(hands).where(eq(hands.id, handId));
+  if (hand?.phase !== 'complete') {
+    console.log(`[completeHand] Failed to complete hand ${handId}, phase is ${hand?.phase}`);
+    return;
+  }
 
   const handCompletePayload = {
     handNumber: hand?.handNumber,
@@ -1277,18 +1546,99 @@ async function completeHand(
 
   // Check for eliminated players and start next hand
   const { players } = await tableRepo.getTableWithPlayers(tableId);
+  console.log(`[completeHand] Players after fetching:`,
+    players.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
+
   for (const player of players) {
     if (player.stack === 0 && player.status !== 'eliminated') {
+      console.log(`[completeHand] Marking player ${player.name} (seat ${player.seatIndex}) as eliminated (stack=0)`);
       await db.update(tablePlayers).set({ status: 'eliminated' }).where(eq(tablePlayers.id, player.id));
     }
   }
 
-  const remainingPlayers = players.filter((p) => p.stack > 0 && p.status !== 'eliminated');
+  // Re-fetch players after elimination updates
+  const { players: refreshedPlayers, table } = await tableRepo.getTableWithPlayers(tableId);
+  const remainingPlayers = refreshedPlayers.filter((p) => p.stack > 0 && p.status !== 'eliminated');
+  console.log(`[completeHand] Remaining players after elimination:`,
+    remainingPlayers.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
+  console.log(`[completeHand] Table status: ${table?.status}`);
+
+  // Tournament winner - only one player left with chips
+  if (remainingPlayers.length === 1 && table) {
+    const winner = remainingPlayers[0];
+    console.log(`[completeHand] Tournament winner: ${winner.name} (seat ${winner.seatIndex})`);
+
+    // Mark tournament as complete
+    await tournamentRepo.updateTournamentStatus(table.tournamentId, 'complete');
+
+    // Update table status
+    await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
+
+    // Broadcast tournament complete
+    if (pusher) {
+      pusher.trigger(`table-${tableId}`, 'TOURNAMENT_COMPLETE', {
+        eventId: `tournament-complete-${table.tournamentId}`,
+        winner: {
+          playerId: winner.playerId,
+          name: winner.name,
+          seatIndex: winner.seatIndex,
+          stack: winner.stack,
+        },
+      }).catch((err) => console.error('[completeHand] Failed to broadcast TOURNAMENT_COMPLETE:', err));
+    }
+    return;
+  }
+
+  // No players left (edge case - shouldn't happen)
+  if (remainingPlayers.length === 0 && table) {
+    console.warn('[completeHand] No remaining players - ending tournament');
+    await tournamentRepo.updateTournamentStatus(table.tournamentId, 'complete');
+    await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
+    return;
+  }
+
+  // Start next hand if 2+ players remain
   if (remainingPlayers.length >= 2) {
     setTimeout(async () => {
       try {
         const nextHandNumber = (hand?.handNumber || 0) + 1;
-        await startNewHand(tableId, nextHandNumber);
+        const newHand = await startNewHand(tableId, nextHandNumber);
+
+        // Broadcast HAND_STARTED via Pusher so clients don't have to wait for polling
+        if (pusher && newHand) {
+          const { table: refreshedTable, players: updatedPlayers } = await tableRepo.getTableWithPlayers(tableId);
+          const firstActorPlayer = updatedPlayers.find((p) => p.seatIndex === newHand.currentActorSeat);
+          const toCall = Math.max(0, newHand.currentBet - (firstActorPlayer?.currentBet || 0));
+          const validActionsForActor = firstActorPlayer && refreshedTable
+            ? getValidActions({
+                status: firstActorPlayer.status,
+                currentBet: newHand.currentBet,
+                playerBet: firstActorPlayer.currentBet,
+                playerStack: firstActorPlayer.stack,
+                minRaise: newHand.minRaise,
+                bigBlind: refreshedTable.bigBlind,
+                canCheck: toCall === 0,
+              })
+            : null;
+
+          pusher.trigger(`table-${tableId}`, 'HAND_STARTED', {
+            eventId: `hand-started-${newHand.handNumber}`,
+            handNumber: newHand.handNumber,
+            dealerSeatIndex: newHand.dealerSeat,
+            smallBlindSeatIndex: newHand.smallBlindSeat,
+            bigBlindSeatIndex: newHand.bigBlindSeat,
+            firstActorSeat: newHand.currentActorSeat,
+            blinds: refreshedTable ? { sb: refreshedTable.smallBlind, bb: refreshedTable.bigBlind } : undefined,
+          }).catch((err) => console.error('[completeHand] Failed to broadcast HAND_STARTED:', err));
+
+          pusher.trigger(`table-${tableId}`, 'TURN_STARTED', {
+            eventId: `turn-${newHand.currentActorSeat}-${newHand.actionDeadline ?? 'unlimited'}`,
+            seatIndex: newHand.currentActorSeat,
+            expiresAt: newHand.actionDeadline,
+            isUnlimited: newHand.actionDeadline === null,
+            validActions: validActionsForActor,
+          }).catch((err) => console.error('[completeHand] Failed to broadcast TURN_STARTED:', err));
+        }
       } catch (err) {
         console.error('Failed to start next hand:', err);
       }

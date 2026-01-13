@@ -56,6 +56,10 @@ function generateDeterministicEventId(event: TableEvent): string {
       const winnersKey = e.winners?.map(w => `${w.seatIndex}:${w.amount}`).join(',') ?? '';
       return `winner-${winnersKey}`;
     }
+    case 'TOURNAMENT_COMPLETE': {
+      const e = event as { winner?: { playerId: string } };
+      return `tournament-complete-${e.winner?.playerId ?? 'unknown'}`;
+    }
     default:
       // For unknown events, use a hash of the stringified content
       return `${event.type}-${JSON.stringify(event).slice(0, 100)}`;
@@ -161,6 +165,14 @@ interface TableStoreState {
     pot: number;
   } | null;
 
+  // Tournament winner (when tournament is complete)
+  tournamentWinner: {
+    playerId: string;
+    name: string;
+    seatIndex: number;
+    stack: number;
+  } | null;
+
   // Optimistic update tracking
   pendingAction: PendingAction | null;
 
@@ -170,6 +182,9 @@ interface TableStoreState {
   // Last sync timestamp for staleness detection
   lastSyncTimestamp: number;
 
+  // Voluntarily shown cards (after folding)
+  // Maps seat index to the cards shown [card1 | null, card2 | null]
+  shownCards: Record<number, [Card | null, Card | null]>;
 
   // Actions
   setTableState: (state: TableState, heroSeatIndex: number, version?: number, lastEventId?: number, validActions?: ValidActions | null) => void;
@@ -182,6 +197,7 @@ interface TableStoreState {
   updateVersion: (version: number, lastEventId: number) => void;
   setShowdownResult: (result: TableStoreState['showdownResult']) => void;
   clearShowdownResult: () => void;
+  setTournamentWinner: (winner: TableStoreState['tournamentWinner']) => void;
   reset: () => void;
 
   // Optimistic update actions
@@ -229,9 +245,11 @@ const INITIAL_STATE = {
   lastEventId: 0,
   validActions: null,
   showdownResult: null,
+  tournamentWinner: null,
   pendingAction: null,
   appliedEventIds: new Set<string>(),
   lastSyncTimestamp: 0,
+  shownCards: {},
 };
 
 export const useTableStore = create<TableStoreState>((set, get) => ({
@@ -248,6 +266,35 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
       state.phase === 'showdown' &&
       current.showdownResult !== null &&
       current.handNumber === state.handNumber;
+
+    // Mark implied events as applied to prevent duplicates when Pusher events arrive
+    // This ensures events already reflected in HTTP-fetched state aren't re-applied
+    const impliedEvents = new Set(current.appliedEventIds);
+    if (state.handNumber > 0) {
+      // Mark HAND_STARTED for current hand as applied
+      impliedEvents.add(`hand-started-${state.handNumber}`);
+
+      // Mark current street as dealt
+      if (state.phase && state.phase !== 'waiting' && state.phase !== 'preflop') {
+        impliedEvents.add(`street-${state.phase}-${state.communityCards.length}`);
+      }
+
+      // Mark current turn as started if there's an actor
+      if (state.currentActorSeatIndex !== null && state.currentActorSeatIndex !== undefined) {
+        const expiresKey = state.turnExpiresAt ?? 'unlimited';
+        impliedEvents.add(`turn-${state.currentActorSeatIndex}-${expiresKey}`);
+      }
+
+      // Mark showdown if in showdown phase
+      if (state.phase === 'showdown') {
+        impliedEvents.add(`showdown-${state.handNumber}`);
+      }
+    }
+
+    // Trim to prevent memory leak (keep last 500)
+    const appliedEventIds = impliedEvents.size > 500
+      ? new Set(Array.from(impliedEvents).slice(-500))
+      : impliedEvents;
 
     set({
       tableId: state.id,
@@ -281,6 +328,8 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
       validActions: validActions ?? null,
       // Preserve showdown result if still in showdown, else clear on phase change
       showdownResult: preserveShowdown ? current.showdownResult : (state.phase === 'showdown' ? current.showdownResult : null),
+      // Use updated appliedEventIds with implied events
+      appliedEventIds,
     });
   },
 
@@ -370,8 +419,14 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
         };
 
         // Reset seats for new hand - clear hole cards and reset player states
+        // All active players should start as 'waiting' (not 'folded', not 'all_in')
         const resetSeats = state.seats.map((s) => {
           if (!s.player) return s;
+          // Preserve eliminated/sitting_out statuses, reset everything else to waiting
+          const persistedStatuses = ['eliminated', 'sitting_out'];
+          const newStatus = persistedStatuses.includes(s.player.status as string)
+            ? s.player.status
+            : 'waiting';
           return {
             ...s,
             player: {
@@ -380,7 +435,7 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
               currentBet: 0,
               hasActed: false,
               isAllIn: false,
-              status: s.player.status === 'folded' ? 'waiting' : s.player.status,
+              status: newStatus,
             },
           };
         });
@@ -399,7 +454,9 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
           bigBlindSeatIndex: handEvent.bigBlindSeatIndex ?? handEvent.bigBlindSeat ?? 0,
           currentActorSeatIndex: handEvent.firstActorSeatIndex ?? handEvent.firstActorSeat ?? null,
           showdownResult: null, // Clear showdown result for new hand
+          validActions: null, // Clear validActions until TURN_STARTED arrives
           seats: resetSeats,
+          shownCards: {}, // Clear voluntarily shown cards for new hand
         });
         break;
       }
@@ -539,10 +596,15 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
         });
 
         // Display showdown - server controls when HAND_STARTED is sent
+        // Clear actor and validActions since no actions are possible during showdown
         set({
           phase: 'showdown',
           seats: revealedSeats,
           showdownResult,
+          currentActorSeatIndex: null,
+          validActions: null,
+          turnExpiresAt: null,
+          turnIsUnlimited: false,
         });
         break;
       }
@@ -552,6 +614,10 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
           phase: 'awarding',
           pot: 0,
           sidePots: [],
+          currentActorSeatIndex: null,
+          validActions: null,
+          turnExpiresAt: null,
+          turnIsUnlimited: false,
           // Update winner stacks
           seats: state.seats.map((s) => {
             const win = event.winners.find((w) => w.seatIndex === s.index);
@@ -612,6 +678,54 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
         break;
       }
 
+      case 'TOURNAMENT_COMPLETE': {
+        const tournamentEvent = event as {
+          type: 'TOURNAMENT_COMPLETE';
+          winner: {
+            playerId: string;
+            name: string;
+            seatIndex: number;
+            stack: number;
+          };
+        };
+
+        set({
+          phase: 'tournament-complete',
+          currentActorSeatIndex: null,
+          validActions: null,
+          turnExpiresAt: null,
+          turnIsUnlimited: false,
+          tournamentWinner: tournamentEvent.winner,
+        });
+        break;
+      }
+
+      case 'CARDS_SHOWN': {
+        // Player voluntarily showed their cards (after folding)
+        const cardsShownEvent = event as {
+          type: 'CARDS_SHOWN';
+          seatIndex: number;
+          cards: [string | null, string | null];
+          handNumber: number;
+        };
+
+        // Only apply if it's for the current hand
+        if (cardsShownEvent.handNumber === state.handNumber) {
+          const parsedCards: [Card | null, Card | null] = [
+            cardsShownEvent.cards[0] ? parseCard(cardsShownEvent.cards[0]) : null,
+            cardsShownEvent.cards[1] ? parseCard(cardsShownEvent.cards[1]) : null,
+          ];
+
+          set({
+            shownCards: {
+              ...state.shownCards,
+              [cardsShownEvent.seatIndex]: parsedCards,
+            },
+          });
+        }
+        break;
+      }
+
       default:
         break;
     }
@@ -637,6 +751,12 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
 
   clearShowdownResult: () =>
     set({ showdownResult: null }),
+
+  setTournamentWinner: (winner) =>
+    set({
+      tournamentWinner: winner,
+      phase: winner ? 'tournament-complete' : get().phase,
+    }),
 
   reset: () =>
     set(INITIAL_STATE),

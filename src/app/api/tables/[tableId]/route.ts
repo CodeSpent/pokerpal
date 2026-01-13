@@ -92,6 +92,11 @@ export async function GET(
       ? JSON.parse(hand.communityCards).map(parseCard)
       : [];
 
+    // Determine phase - check for tournament complete first
+    const phase = table.status === 'complete'
+      ? 'tournament-complete'
+      : (hand?.phase || 'waiting');
+
     // Build table state matching old format
     const tableState = {
       id: table.id,
@@ -99,7 +104,7 @@ export async function GET(
       tableNumber: table.tableNumber,
       maxSeats: table.maxSeats,
       status: table.status,
-      phase: hand?.phase || 'waiting',
+      phase,
       handNumber: hand?.handNumber || 0,
       dealerSeatIndex: table.dealerSeat,
       smallBlindSeatIndex: hand?.smallBlindSeat ?? null,
@@ -147,21 +152,33 @@ export async function GET(
       });
     }
 
+    // Get tournament winner info if tournament is complete
+    let tournamentWinner = null;
+    if (table.status === 'complete' && players.length > 0) {
+      // Find the player with the most chips (the winner)
+      const winner = players.reduce((prev, current) =>
+        (prev.stack > current.stack) ? prev : current
+      );
+      tournamentWinner = {
+        playerId: winner.playerId,
+        name: winner.name,
+        seatIndex: winner.seatIndex,
+        stack: winner.stack,
+      };
+    }
+
     console.log('[GET /api/tables] tableId:', tableId);
-    console.log('[GET /api/tables] currentActorSeatIndex:', hand?.currentActorSeat);
-    console.log('[GET /api/tables] phase:', hand?.phase);
-    console.log('[GET /api/tables] playerSeat.status:', playerSeat.status);
-    console.log('[GET /api/tables] playerSeat.stack:', playerSeat.stack);
-    console.log('[GET /api/tables] playerSeat.currentBet:', playerSeat.currentBet);
-    console.log('[GET /api/tables] hand.currentBet:', hand?.currentBet);
-    console.log('[GET /api/tables] heroSeatIndex:', playerSeat.seatIndex);
-    console.log('[GET /api/tables] isHeroTurn:', isHeroTurn);
-    console.log('[GET /api/tables] validActions:', validActions);
+    console.log('[GET /api/tables] phase:', phase);
+    console.log('[GET /api/tables] table.status:', table.status);
+    if (tournamentWinner) {
+      console.log('[GET /api/tables] tournamentWinner:', tournamentWinner.name);
+    }
 
     return NextResponse.json({
       table: tableState,
       heroSeatIndex: playerSeat.seatIndex,
       validActions,
+      tournamentWinner,
     });
   } catch (error) {
     console.error('Error getting table:', error);

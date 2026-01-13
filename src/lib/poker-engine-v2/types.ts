@@ -371,7 +371,7 @@ export interface TableState {
   tableNumber: number;
   maxSeats: 6 | 9;
   status: TableStatus;
-  phase: HandPhase | 'waiting' | 'hand-complete' | 'awarding';
+  phase: HandPhase | 'waiting' | 'hand-complete' | 'awarding' | 'tournament-complete';
   handNumber: number;
   dealerSeatIndex: number;
   smallBlindSeatIndex?: number | null;
@@ -417,4 +417,6 @@ export type TableEvent =
   | { type: 'PLAYER_TIMEOUT'; seatIndex: number }
   | { type: 'SHOWDOWN'; reveals: { seatIndex: number; cards: [Card, Card] }[] }
   | { type: 'WINNER'; winners: { seatIndex: number; amount: number }[] }
-  | { type: 'HAND_COMPLETE' };
+  | { type: 'HAND_COMPLETE' }
+  | { type: 'TOURNAMENT_COMPLETE'; winner: { playerId: string; name: string; seatIndex: number; stack: number } }
+  | { type: 'CARDS_SHOWN'; seatIndex: number; cards: [string | null, string | null]; handNumber: number };

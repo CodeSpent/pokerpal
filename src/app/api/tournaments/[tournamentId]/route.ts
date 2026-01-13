@@ -20,8 +20,8 @@ export async function GET(
       );
     }
 
-    // Get registrations with player details
-    const registrations = await tournamentRepo.getRegistrationsWithPlayers(tournamentId);
+    // Get registrations with player details and ready status
+    const registrations = await tournamentRepo.getRegistrationsWithReadyStatus(tournamentId);
 
     // Get tables for this tournament
     const tables = await tableRepo.getTournamentTables(tournamentId);
@@ -36,7 +36,8 @@ export async function GET(
         status: tournament.status,
         registeredPlayers: registrations.map((r) => ({
           id: r.playerId,
-          displayName: r.player.name,
+          displayName: r.playerName,
+          isReady: r.isReady,
         })),
         maxPlayers: tournament.maxPlayers,
         tableSize: tournament.tableSize,
@@ -46,6 +47,7 @@ export async function GET(
         playersRemaining: tournament.playersRemaining,
         createdAt: tournament.createdAt,
         startedAt: tournament.startedAt,
+        countdownStartedAt: tournament.countdownStartedAt,
         isPasswordProtected: false,
         creatorId: tournament.creatorId,
         earlyStart: {

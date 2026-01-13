@@ -10,6 +10,12 @@ import type { Card, Rank, Suit } from '@/types/poker';
  * Parse a card string (e.g., "As", "Kh") into a Card object
  */
 export function parseCard(cardStr: string): Card {
+  // Validate input to prevent invalid cards
+  if (!cardStr || typeof cardStr !== 'string' || cardStr.length < 2) {
+    console.warn(`[parseCard] Invalid card string: "${cardStr}"`);
+    // Return a placeholder that will be caught by PlayingCard guard
+    return { rank: '' as Rank, suit: '' as Suit };
+  }
   return {
     rank: cardStr[0] as Rank,
     suit: cardStr[1] as Suit,

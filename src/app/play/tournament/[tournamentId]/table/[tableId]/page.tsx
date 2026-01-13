@@ -7,7 +7,8 @@ import { useTableStore } from '@/stores/table-store';
 import { useTableChannel } from '@/hooks/useTableChannel';
 import { useSyncManager } from '@/hooks/useSyncManager';
 import { PokerTable, TurnTimer } from '@/components/play/table';
-import { ActionButtons } from '@/components/play/controls';
+import { ActionPanel } from '@/components/play/controls';
+import { TournamentCompleteOverlay } from '@/components/play/overlays';
 import { submitAction, triggerTimeout } from '@/services/tableActionService';
 import type { Action } from '@/types/poker';
 import { Wifi, WifiOff, Clock } from 'lucide-react';
@@ -126,10 +127,10 @@ export default function TablePage({
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="h-[calc(100dvh-11.5rem)] flex items-center justify-center bg-surface-primary">
         <div className="text-center">
-          <div className="inline-block w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <p className="mt-4 text-zinc-400">Loading table...</p>
+          <div className="inline-block w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
+          <p className="mt-4 text-text-muted">Loading table...</p>
         </div>
       </div>
     );
@@ -137,12 +138,12 @@ export default function TablePage({
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="h-[calc(100dvh-11.5rem)] flex items-center justify-center bg-surface-primary">
         <div className="text-center">
-          <p className="text-xl text-red-400 mb-4">{error}</p>
+          <p className="text-xl text-action-fold mb-4">{error}</p>
           <button
             onClick={() => router.push('/play')}
-            className="text-emerald-400 hover:text-emerald-300"
+            className="text-accent-gold hover:text-accent-goldBright transition-colors"
           >
             Back to Lobby
           </button>
@@ -152,35 +153,36 @@ export default function TablePage({
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-800">
-        <div className="flex items-center gap-4">
+    <div className="h-[calc(100dvh-11.5rem)] flex flex-col bg-surface-primary overflow-hidden">
+      {/* Compact Header */}
+      <header className="h-12 shrink-0 flex items-center justify-between px-4 bg-surface-secondary border-b border-surface-tertiary">
+        <div className="flex items-center gap-3">
           {/* Connection status */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {isConnected ? (
-              <Wifi className="w-4 h-4 text-emerald-400" />
+              <Wifi className="w-3.5 h-3.5 text-accent-gold" />
             ) : (
-              <WifiOff className="w-4 h-4 text-red-400" />
+              <WifiOff className="w-3.5 h-3.5 text-action-fold" />
             )}
-            <span className={cn('text-sm', isConnected ? 'text-emerald-400' : 'text-red-400')}>
-              {isConnected ? 'Connected' : 'Disconnected'}
+            <span className={cn('text-xs', isConnected ? 'text-accent-gold' : 'text-action-fold')}>
+              {isConnected ? 'Live' : 'Offline'}
             </span>
           </div>
 
+          {/* Divider */}
+          <div className="w-px h-4 bg-surface-tertiary" />
+
           {/* Blind info */}
-          <div className="flex items-center gap-2 text-zinc-400 text-sm">
-            <Clock className="w-4 h-4" />
-            <span>
-              Blinds: {smallBlind}/{bigBlind}
-            </span>
+          <div className="flex items-center gap-1.5 text-text-secondary text-xs">
+            <span className="text-text-muted">Blinds</span>
+            <span className="text-text-primary font-mono">{smallBlind}/{bigBlind}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Hand number */}
-          <span className="text-zinc-500 text-sm">
-            Hand #{handNumber}
+          <span className="text-text-muted text-xs">
+            #{handNumber}
           </span>
 
           {/* Turn timer (when it's hero's turn) */}
@@ -190,21 +192,19 @@ export default function TablePage({
         </div>
       </header>
 
-      {/* Main table area */}
-      <main className="flex-1 flex flex-col items-center justify-center p-4">
-        <PokerTable />
+      {/* Main game area - takes remaining space above action panel */}
+      <main className="flex-1 min-h-0 overflow-hidden p-2">
+        <PokerTable className="h-full" />
       </main>
 
-      {/* Action controls */}
-      <footer className="p-4 bg-zinc-900 border-t border-zinc-800">
-        <div className="max-w-2xl mx-auto">
-          <ActionButtons
-            onAction={handleAction}
-            disabled={isSubmitting}
-          />
-        </div>
-      </footer>
+      {/* Fixed bottom action panel */}
+      <ActionPanel
+        onAction={handleAction}
+        disabled={isSubmitting}
+      />
 
+      {/* Tournament complete overlay */}
+      <TournamentCompleteOverlay tournamentId={tournamentId} />
     </div>
   );
 }

@@ -4,7 +4,6 @@ import { playerRepo, tournamentRepo } from '@/lib/db/repositories';
 import {
   registerPlayerForTournament,
   unregisterPlayerFromTournament,
-  startTournament,
 } from '@/lib/game/tournament-service';
 
 const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
@@ -36,7 +35,7 @@ export async function POST(
     const playerName = displayName || 'Player';
     await playerRepo.ensurePlayer(playerId, playerName);
 
-    // Register for tournament
+    // Register for tournament (Pusher broadcasts happen in service)
     const result = await registerPlayerForTournament(tournamentId, playerId);
 
     if (!result.success) {
@@ -46,26 +45,16 @@ export async function POST(
       );
     }
 
-    // Check if tournament should auto-start (SNG style)
-    if (result.data.shouldAutoStart) {
-      const startResult = await startTournament(tournamentId);
-
-      if (startResult.success) {
-        return NextResponse.json({
-          registered: true,
-          tournamentStarted: true,
-          tables: startResult.data.tables.map((t) => t.id),
-        });
-      }
-    }
-
     // Get tournament for max players
     const tournament = await tournamentRepo.getTournament(tournamentId);
 
+    // Return countdown info if it started
     return NextResponse.json({
       registered: true,
       registeredCount: result.data.playerCount,
       maxPlayers: tournament?.maxPlayers ?? 9,
+      countdownStarted: result.data.shouldStartCountdown,
+      countdownExpiresAt: result.data.countdownExpiresAt,
     });
   } catch (error) {
     console.error('Error registering for tournament:', error);

@@ -276,3 +276,91 @@ export async function getEarlyStartVotes(
     .where(eq(earlyStartVotes.tournamentId, tournamentId));
   return votes;
 }
+
+// =============================================================================
+// Ready-Up System
+// =============================================================================
+
+/**
+ * Set player ready status
+ */
+export async function setPlayerReady(
+  tournamentId: string,
+  playerId: string,
+  isReady: boolean = true
+): Promise<void> {
+  const db = getDb();
+  await db
+    .update(tournamentRegistrations)
+    .set({ isReady })
+    .where(
+      and(
+        eq(tournamentRegistrations.tournamentId, tournamentId),
+        eq(tournamentRegistrations.playerId, playerId)
+      )
+    );
+}
+
+/**
+ * Get count of ready players
+ */
+export async function getReadyCount(tournamentId: string): Promise<number> {
+  const db = getDb();
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(tournamentRegistrations)
+    .where(
+      and(
+        eq(tournamentRegistrations.tournamentId, tournamentId),
+        eq(tournamentRegistrations.isReady, true)
+      )
+    );
+  return Number(result[0]?.count ?? 0);
+}
+
+/**
+ * Reset all ready states for a tournament
+ */
+export async function resetReadyStates(tournamentId: string): Promise<void> {
+  const db = getDb();
+  await db
+    .update(tournamentRegistrations)
+    .set({ isReady: false })
+    .where(eq(tournamentRegistrations.tournamentId, tournamentId));
+}
+
+/**
+ * Set countdown started timestamp
+ */
+export async function setCountdownStarted(
+  tournamentId: string,
+  startedAt: number | null
+): Promise<void> {
+  const db = getDb();
+  await db
+    .update(tournaments)
+    .set({
+      countdownStartedAt: startedAt,
+      version: sql`${tournaments.version} + 1`,
+    })
+    .where(eq(tournaments.id, tournamentId));
+}
+
+/**
+ * Get registrations with ready status
+ */
+export async function getRegistrationsWithReadyStatus(
+  tournamentId: string
+): Promise<Array<{ playerId: string; playerName: string; isReady: boolean }>> {
+  const db = getDb();
+  const results = await db
+    .select({
+      playerId: tournamentRegistrations.playerId,
+      playerName: players.name,
+      isReady: tournamentRegistrations.isReady,
+    })
+    .from(tournamentRegistrations)
+    .innerJoin(players, eq(tournamentRegistrations.playerId, players.id))
+    .where(eq(tournamentRegistrations.tournamentId, tournamentId));
+  return results;
+}

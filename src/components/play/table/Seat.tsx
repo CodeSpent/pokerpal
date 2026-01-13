@@ -5,7 +5,9 @@ import { cn } from '@/lib/cn';
 import type { Seat as SeatType } from '@/lib/poker-engine-v2/types';
 import type { Card } from '@/types/poker';
 import { HoleCards } from '../cards/HoleCards';
+import { ShowCardsOverlay } from '../cards/ShowCardsOverlay';
 import { User, WifiOff } from 'lucide-react';
+import { useCardPeek } from '@/hooks/useCardPeek';
 
 interface WinnerInfo {
   handRank: string;
@@ -24,6 +26,10 @@ interface SeatProps {
   winnerInfo?: WinnerInfo;
   variant?: SeatVariant;
   className?: string;
+  // Cards voluntarily shown by this player after folding
+  shownCards?: [Card | null, Card | null];
+  // Table ID for show cards API (hero only)
+  tableId?: string;
 }
 
 // Avatar with status ring
@@ -136,8 +142,13 @@ export function Seat({
   winnerInfo,
   variant = 'standard',
   className,
+  shownCards,
+  tableId,
 }: SeatProps) {
   const { player, isDealer, isSmallBlind, isBigBlind, index } = seat;
+
+  // Peek state for hero cards (only used when variant === 'hero')
+  const { isPeeking, togglePeek } = useCardPeek();
 
   // Empty seat
   if (!player) {
@@ -205,14 +216,26 @@ export function Seat({
             </div>
           </div>
 
-          {/* Hole cards - larger for hero */}
-          <HoleCards
-            cards={player.holeCards}
-            isHero={true}
-            isFolded={isFolded}
-            size="lg"
-            highlightedCards={isWinner && winnerInfo ? winnerInfo.bestCards : undefined}
-          />
+          {/* Hole cards - larger for hero with peek functionality */}
+          <div className="relative">
+            <HoleCards
+              cards={player.holeCards}
+              isHero={true}
+              isFolded={isFolded}
+              size="lg"
+              highlightedCards={isWinner && winnerInfo ? winnerInfo.bestCards : undefined}
+              isPeeking={isPeeking}
+              onPeekToggle={togglePeek}
+              canPeek={!!player.holeCards && !isFolded && !isWinner}
+            />
+            {/* Show cards overlay (appears after folding) */}
+            {isFolded && player.holeCards && tableId && (
+              <ShowCardsOverlay
+                cards={player.holeCards}
+                tableId={tableId}
+              />
+            )}
+          </div>
 
           {/* Current bet */}
           {player.currentBet > 0 && (
@@ -320,6 +343,7 @@ export function Seat({
           isFolded={isFolded}
           size={cardSize}
           highlightedCards={isWinner && winnerInfo ? winnerInfo.bestCards : undefined}
+          revealedCards={shownCards}
         />
       </div>
 

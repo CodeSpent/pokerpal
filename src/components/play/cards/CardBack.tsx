@@ -8,23 +8,29 @@ interface CardBackProps {
   className?: string;
 }
 
-const sizeClasses = {
-  sm: 'w-8 h-11',
-  md: 'w-12 h-16',
-  lg: 'w-16 h-22',
+// Match PlayingCard pixel dimensions exactly
+const cardSizes = {
+  sm: { width: 40, height: 56 },
+  md: { width: 52, height: 73 },
+  lg: { width: 64, height: 90 },
 };
 
 export function CardBack({ size = 'md', className }: CardBackProps) {
+  const dimensions = cardSizes[size];
+
   return (
     <motion.div
       className={cn(
-        sizeClasses[size],
         'relative rounded-lg select-none overflow-hidden',
         'bg-gradient-to-br from-surface-tertiary via-surface-secondary to-surface-primary',
         'border border-surface-quaternary/50',
         'shadow-md',
         className
       )}
+      style={{
+        width: dimensions.width,
+        height: dimensions.height,
+      }}
     >
       {/* Subtle geometric pattern */}
       <div className="absolute inset-0 opacity-[0.07]">

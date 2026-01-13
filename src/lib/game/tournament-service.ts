@@ -8,6 +8,9 @@
 import { tournamentRepo, playerRepo, tableRepo, eventRepo } from '@/lib/db/repositories';
 import { withTransaction, generateId, now } from '@/lib/db/transaction';
 import type { Tournament, Table, TablePlayer } from '@/lib/db/schema';
+import { getPusher, channels, tournamentEvents } from '@/lib/pusher-server';
+
+const COUNTDOWN_DURATION_MS = 20_000; // 20 seconds
 
 // =============================================================================
 // Types
@@ -16,12 +19,25 @@ import type { Tournament, Table, TablePlayer } from '@/lib/db/schema';
 export interface RegisterResult {
   registered: boolean;
   playerCount: number;
-  shouldAutoStart: boolean;
+  shouldStartCountdown: boolean;
+  countdownExpiresAt?: number;
 }
 
 export interface StartTournamentResult {
   tables: Table[];
   players: TablePlayer[];
+}
+
+export interface CountdownResult {
+  countdownStarted: boolean;
+  expiresAt: number;
+}
+
+export interface ReadyResult {
+  isReady: boolean;
+  readyCount: number;
+  playerCount: number;
+  allReady: boolean;
 }
 
 // =============================================================================
@@ -68,25 +84,51 @@ export async function registerPlayerForTournament(
     // Register
     await tournamentRepo.registerPlayer(tournamentId, playerId);
 
-    // Get updated count
+    // Get updated count and all registrations for broadcast
     const newCount = await tournamentRepo.getRegistrationCount(tournamentId);
+    const registrations = await tournamentRepo.getRegistrationsWithReadyStatus(tournamentId);
 
-    // Emit event
+    // Emit event to database
     await eventRepo.emitEvent('tournament', tournamentId, 'PLAYER_REGISTERED', {
       playerId,
       playerName: player.name,
       playerCount: newCount,
     }, tournament.version);
 
-    // Check if should auto-start (SNG style - when full)
-    const shouldAutoStart = newCount >= tournament.maxPlayers;
+    // Broadcast via Pusher
+    const pusher = getPusher();
+    if (pusher) {
+      await pusher.trigger(channels.tournament(tournamentId), tournamentEvents.PLAYER_REGISTERED, {
+        playerId,
+        playerName: player.name,
+        playerCount: newCount,
+        players: registrations.map(r => ({
+          id: r.playerId,
+          displayName: r.playerName,
+          isReady: r.isReady,
+        })),
+      }).catch(err => console.error('Failed to broadcast PLAYER_REGISTERED:', err));
+    }
+
+    // Check if should start countdown (SNG style - when full)
+    const shouldStartCountdown = newCount >= tournament.maxPlayers;
+    let countdownExpiresAt: number | undefined;
+
+    if (shouldStartCountdown) {
+      // Start the countdown
+      const countdownResult = await startCountdown(tournamentId);
+      if (countdownResult.success) {
+        countdownExpiresAt = countdownResult.data.expiresAt;
+      }
+    }
 
     return {
       success: true,
       data: {
         registered: true,
         playerCount: newCount,
-        shouldAutoStart,
+        shouldStartCountdown,
+        countdownExpiresAt,
       },
     };
   } catch (error) {
@@ -130,14 +172,34 @@ export async function unregisterPlayerFromTournament(
     // Unregister
     await tournamentRepo.unregisterPlayer(tournamentId, playerId);
 
-    // Get updated count
+    // Get updated count and registrations
     const playerCount = await tournamentRepo.getRegistrationCount(tournamentId);
+    const registrations = await tournamentRepo.getRegistrationsWithReadyStatus(tournamentId);
+
+    // If countdown was active and player left, cancel countdown
+    if (tournament.countdownStartedAt) {
+      await cancelCountdown(tournamentId);
+    }
 
     // Emit event
     await eventRepo.emitEvent('tournament', tournamentId, 'PLAYER_UNREGISTERED', {
       playerId,
       playerCount,
     }, tournament.version);
+
+    // Broadcast via Pusher
+    const pusher = getPusher();
+    if (pusher) {
+      await pusher.trigger(channels.tournament(tournamentId), tournamentEvents.PLAYER_UNREGISTERED, {
+        playerId,
+        playerCount,
+        players: registrations.map(r => ({
+          id: r.playerId,
+          displayName: r.playerName,
+          isReady: r.isReady,
+        })),
+      }).catch(err => console.error('Failed to broadcast PLAYER_UNREGISTERED:', err));
+    }
 
     return {
       success: true,
@@ -306,5 +368,183 @@ export async function voteForEarlyStart(
       success: false,
       error: error instanceof Error ? error.message : 'Failed to vote',
     };
+  }
+}
+
+// =============================================================================
+// Countdown & Ready-Up
+// =============================================================================
+
+/**
+ * Start the ready-up countdown
+ */
+export async function startCountdown(
+  tournamentId: string
+): Promise<{ success: true; data: CountdownResult } | { success: false; error: string }> {
+  try {
+    const tournament = await tournamentRepo.getTournament(tournamentId);
+    if (!tournament) {
+      return { success: false, error: 'Tournament not found' };
+    }
+
+    if (tournament.status !== 'registering') {
+      return { success: false, error: 'Tournament has already started' };
+    }
+
+    const playerCount = await tournamentRepo.getRegistrationCount(tournamentId);
+    if (playerCount < 2) {
+      return { success: false, error: 'Need at least 2 players to start' };
+    }
+
+    // Set countdown started
+    const countdownStartedAt = now();
+    const expiresAt = countdownStartedAt + COUNTDOWN_DURATION_MS;
+    await tournamentRepo.setCountdownStarted(tournamentId, countdownStartedAt);
+
+    // Get registrations for broadcast
+    const registrations = await tournamentRepo.getRegistrationsWithReadyStatus(tournamentId);
+
+    // Broadcast via Pusher
+    const pusher = getPusher();
+    if (pusher) {
+      await pusher.trigger(channels.tournament(tournamentId), tournamentEvents.COUNTDOWN_STARTED, {
+        expiresAt,
+        durationMs: COUNTDOWN_DURATION_MS,
+        players: registrations.map(r => ({
+          id: r.playerId,
+          displayName: r.playerName,
+          isReady: r.isReady,
+        })),
+      }).catch(err => console.error('Failed to broadcast COUNTDOWN_STARTED:', err));
+    }
+
+    return {
+      success: true,
+      data: {
+        countdownStarted: true,
+        expiresAt,
+      },
+    };
+  } catch (error) {
+    console.error('[startCountdown] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start countdown',
+    };
+  }
+}
+
+/**
+ * Cancel the countdown
+ */
+export async function cancelCountdown(
+  tournamentId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    // Clear countdown and reset ready states
+    await tournamentRepo.setCountdownStarted(tournamentId, null);
+    await tournamentRepo.resetReadyStates(tournamentId);
+
+    // Broadcast via Pusher
+    const pusher = getPusher();
+    if (pusher) {
+      await pusher.trigger(channels.tournament(tournamentId), tournamentEvents.COUNTDOWN_CANCELLED, {})
+        .catch(err => console.error('Failed to broadcast COUNTDOWN_CANCELLED:', err));
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[cancelCountdown] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to cancel countdown',
+    };
+  }
+}
+
+/**
+ * Mark player as ready
+ */
+export async function markPlayerReady(
+  tournamentId: string,
+  playerId: string
+): Promise<{ success: true; data: ReadyResult } | { success: false; error: string }> {
+  try {
+    const tournament = await tournamentRepo.getTournament(tournamentId);
+    if (!tournament) {
+      return { success: false, error: 'Tournament not found' };
+    }
+
+    if (tournament.status !== 'registering') {
+      return { success: false, error: 'Tournament has already started' };
+    }
+
+    if (!tournament.countdownStartedAt) {
+      return { success: false, error: 'Countdown has not started' };
+    }
+
+    // Check if registered
+    const isRegistered = await tournamentRepo.isPlayerRegistered(tournamentId, playerId);
+    if (!isRegistered) {
+      return { success: false, error: 'Not registered for this tournament' };
+    }
+
+    // Mark ready
+    await tournamentRepo.setPlayerReady(tournamentId, playerId, true);
+
+    // Get counts
+    const readyCount = await tournamentRepo.getReadyCount(tournamentId);
+    const playerCount = await tournamentRepo.getRegistrationCount(tournamentId);
+    const allReady = readyCount >= playerCount;
+
+    // Get registrations for broadcast
+    const registrations = await tournamentRepo.getRegistrationsWithReadyStatus(tournamentId);
+
+    // Broadcast via Pusher
+    const pusher = getPusher();
+    if (pusher) {
+      await pusher.trigger(channels.tournament(tournamentId), tournamentEvents.PLAYER_READY, {
+        playerId,
+        readyCount,
+        playerCount,
+        allReady,
+        players: registrations.map(r => ({
+          id: r.playerId,
+          displayName: r.playerName,
+          isReady: r.isReady,
+        })),
+      }).catch(err => console.error('Failed to broadcast PLAYER_READY:', err));
+    }
+
+    return {
+      success: true,
+      data: {
+        isReady: true,
+        readyCount,
+        playerCount,
+        allReady,
+      },
+    };
+  } catch (error) {
+    console.error('[markPlayerReady] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to mark ready',
+    };
+  }
+}
+
+/**
+ * Broadcast game starting event
+ */
+export async function broadcastGameStarting(
+  tournamentId: string,
+  tableIds: string[]
+): Promise<void> {
+  const pusher = getPusher();
+  if (pusher) {
+    await pusher.trigger(channels.tournament(tournamentId), tournamentEvents.GAME_STARTING, {
+      tableIds,
+    }).catch(err => console.error('Failed to broadcast GAME_STARTING:', err));
   }
 }

@@ -37,6 +37,7 @@ export async function getHand(id: string): Promise<Hand | null> {
 
 /**
  * Get the current active hand for a table
+ * Includes 'dealing' phase to avoid race conditions during hand start
  */
 export async function getCurrentHand(tableId: string): Promise<Hand | null> {
   const db = getDb();
@@ -46,8 +47,7 @@ export async function getCurrentHand(tableId: string): Promise<Hand | null> {
     .where(
       and(
         eq(hands.tableId, tableId),
-        ne(hands.phase, 'complete'),
-        ne(hands.phase, 'dealing')
+        ne(hands.phase, 'complete')
       )
     )
     .orderBy(desc(hands.handNumber))

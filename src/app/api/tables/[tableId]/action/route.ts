@@ -102,6 +102,7 @@ export async function POST(
     }
 
     const actionResult = result.data!;
+    const { actionDetails } = actionResult;
 
     // Build events for Pusher (must match what table-store.ts applyEvent expects)
     // Each event gets a unique eventId for deduplication
@@ -113,9 +114,9 @@ export async function POST(
       type: 'ACTION',  // Must match client's listener
       eventId: `action-${handId}-${handVersion}`,
       record: {
-        seatIndex: playerSeat.seatIndex,
-        action: mappedAction,
-        amount: amount || 0,
+        seatIndex: actionDetails.seatIndex,
+        action: actionDetails.action,
+        amount: actionDetails.actualAmount, // Use actual computed amount, not request amount
         timestamp: Date.now(),
       },
     });
