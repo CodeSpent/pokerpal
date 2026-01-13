@@ -21,7 +21,6 @@
 # misc
 .DS_Store
 *.pem
-.idea/
 
 # debug
 npm-debug.log*
@@ -30,11 +29,23 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files
+.env
 .env*.local
+
+# data files
+.data/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+next-env.d.ts.env.preview
+.env.neon

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Header } from "@/components/layout/header";
+import { Providers } from "./providers";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -27,10 +28,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} font-sans min-h-screen bg-background`}>
-        <Header />
-        <main className="container mx-auto px-4 py-8">
-          {children}
-        </main>
+        <Providers>
+          <Header />
+          <main className="container mx-auto px-4 py-8">
+            {children}
+          </main>
+        </Providers>
       </body>
     </html>
   );

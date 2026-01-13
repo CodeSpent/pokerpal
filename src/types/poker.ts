@@ -77,7 +77,7 @@ export const POSITION_SHORT: Record<Position, string> = {
 };
 
 // Player actions
-export type Action = 'fold' | 'check' | 'call' | 'raise' | 'all-in';
+export type Action = 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'all-in';
 
 // Action with optional bet size
 export interface ActionWithSize {
