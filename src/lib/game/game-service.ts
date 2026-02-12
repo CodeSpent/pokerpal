@@ -294,11 +294,16 @@ const ALL_IN_STREET_DELAY_MS = 2000;
  * This creates anticipation by dealing each street one at a time with delays.
  */
 function scheduleAllInStreetProgression(handId: string, tableId: string, currentPhase: HandPhase): void {
+  console.log(`[scheduleAllInStreetProgression] hand=${handId} scheduling from phase=${currentPhase} (delay=${ALL_IN_STREET_DELAY_MS}ms)`);
   setTimeout(async () => {
     try {
       const db = getDb();
       const [hand] = await db.select().from(hands).where(eq(hands.id, handId));
-      if (!hand || hand.phase === 'complete' || hand.phase === 'showdown') return;
+      if (!hand || hand.phase === 'complete' || hand.phase === 'showdown') {
+        console.log(`[scheduleAllInStreetProgression] hand=${handId} skipping — phase=${hand?.phase ?? 'not found'}`);
+        return;
+      }
+      console.log(`[scheduleAllInStreetProgression] hand=${handId} executing, current phase=${hand.phase}`);
 
       const { players } = await tableRepo.getTableWithPlayers(tableId);
 
@@ -462,6 +467,9 @@ export async function advanceGameState(tableId: string): Promise<AdvanceResult> 
 
   // 3. Recover invalid actor state
   result.recoveredActor = await maybeRecoverActorState(tableId);
+  if (result.recoveredActor) {
+    console.log(`[advanceGameState] table=${tableId} recovered actor state`);
+  }
 
   // 4. Complete stale showdowns
   result.showdownCompleted = await maybeCompleteShowdown(tableId);
@@ -511,7 +519,43 @@ async function maybeHandleTimeout(tableId: string): Promise<boolean> {
 
 async function maybeRecoverActorState(tableId: string): Promise<boolean> {
   const hand = await getBettingHand(tableId);
-  if (!hand || hand.currentActorSeat === null) return false;
+  if (!hand) return false;
+
+  if (hand.currentActorSeat === null) {
+    // Actor seat is null during an active betting phase — this is the "no one's turn" bug
+    console.warn(`[maybeRecoverActorState] hand=${hand.id} phase=${hand.phase} currentActorSeat=null — attempting recovery`);
+    const { players } = await tableRepo.getTableWithPlayers(tableId);
+    const mappedPlayers = players.map((p) => ({
+      seatIndex: p.seatIndex,
+      status: p.status,
+      currentBet: p.currentBet,
+    }));
+    console.warn(`[maybeRecoverActorState] players:`, mappedPlayers.map(p => `s${p.seatIndex}:${p.status}:bet${p.currentBet}`).join(', '), `handCurrentBet=${hand.currentBet}`);
+
+    // Try to find any valid actor
+    const playersWhoCanAct = getPlayersWhoCanAct(mappedPlayers);
+    if (playersWhoCanAct.length > 0) {
+      // Find the first waiting/active player to give the turn to
+      const recoveredActor = playersWhoCanAct[0];
+      console.warn(`[maybeRecoverActorState] hand=${hand.id} recovering → seat ${recoveredActor.seatIndex}`);
+      await handRepo.updateHand(hand.id, {
+        currentActorSeat: recoveredActor.seatIndex,
+        actionDeadline: now() + 30000,
+      });
+      await tableRepo.updatePlayerBySeat(tableId, recoveredActor.seatIndex, { status: 'active' });
+      return true;
+    } else {
+      console.warn(`[maybeRecoverActorState] hand=${hand.id} no players who can act — checking if should advance phase or showdown`);
+      // Check if all players are all-in and we need to run through streets
+      const active = getActivePlayers(mappedPlayers);
+      if (active.length >= 2 && active.every(p => p.status === 'all_in')) {
+        console.warn(`[maybeRecoverActorState] hand=${hand.id} all players all-in, scheduling street progression`);
+        scheduleAllInStreetProgression(hand.id, tableId, hand.phase as HandPhase);
+        return true;
+      }
+    }
+    return false;
+  }
 
   const { players } = await tableRepo.getTableWithPlayers(tableId);
   const currentActor = players.find((p) => p.seatIndex === hand.currentActorSeat);
@@ -520,7 +564,7 @@ async function maybeRecoverActorState(tableId: string): Promise<boolean> {
     return false;
   }
 
-  console.log(`[advanceGameState] Current actor at seat ${hand.currentActorSeat} has status ${currentActor.status}, finding next actor`);
+  console.log(`[maybeRecoverActorState] hand=${hand.id} actor at seat ${hand.currentActorSeat} has status ${currentActor.status}, finding next actor`);
 
   const mappedPlayers = players.map((p) => ({
     seatIndex: p.seatIndex,
@@ -535,8 +579,10 @@ async function maybeRecoverActorState(tableId: string): Promise<boolean> {
       actionDeadline: now() + 30000,
     });
     await tableRepo.updatePlayerBySeat(tableId, nextActor.seatIndex, { status: 'active' });
-    console.log(`[advanceGameState] Advanced to seat ${nextActor.seatIndex}`);
+    console.log(`[maybeRecoverActorState] hand=${hand.id} advanced to seat ${nextActor.seatIndex}`);
     return true;
+  } else {
+    console.warn(`[maybeRecoverActorState] hand=${hand.id} findNextActor returned null from seat ${hand.currentActorSeat}. players:`, mappedPlayers.map(p => `s${p.seatIndex}:${p.status}:bet${p.currentBet}`).join(', '));
   }
 
   return false;
@@ -1064,10 +1110,38 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
     let newPhase: HandPhase | undefined;
     let isHandComplete = false;
 
-    if (isBettingComplete(updatedHand, mappedUpdatedPlayers)) {
+    console.log(`[submitAction] hand=${hand.id} phase=${hand.phase} seat=${player.seatIndex} action=${normalizedAction} players:`, mappedUpdatedPlayers.map(p => `s${p.seatIndex}:${p.status}:bet${p.currentBet}`).join(', '));
+    console.log(`[submitAction] hand=${hand.id} currentBet=${newCurrentBet} pot=${newPot} bettingComplete=${isBettingComplete(updatedHand, mappedUpdatedPlayers)} awardWithoutShowdown=${shouldAwardWithoutShowdown(mappedUpdatedPlayers)}`);
+
+    if (shouldAwardWithoutShowdown(mappedUpdatedPlayers)) {
+      // Award pot to last remaining player
+      const winner = updatedPlayers.find((p) => !INACTIVE_STATUSES.includes(p.status as PlayerStatus));
+      if (winner) {
+        await db
+          .update(tablePlayers)
+          .set({ stack: sql`${tablePlayers.stack} + ${newPot}` })
+          .where(and(eq(tablePlayers.tableId, tableId), eq(tablePlayers.seatIndex, winner.seatIndex)));
+
+        if (pusher) {
+          pusher.trigger(`table-${tableId}`, 'POT_AWARDED', {
+            eventId: `pot-awarded-${hand.id}`,
+            playerId: winner.playerId,
+            seatIndex: winner.seatIndex,
+            amount: newPot,
+            showdown: false,
+          }).catch((err) => console.error('Failed to broadcast POT_AWARDED:', err));
+        }
+      }
+
+      await db.update(hands).set({ phase: 'complete', endedAt: now() }).where(eq(hands.id, hand.id));
+      phaseChanged = true;
+      newPhase = 'complete';
+      isHandComplete = true;
+    } else if (isBettingComplete(updatedHand, mappedUpdatedPlayers)) {
       const nextPhaseValue = getPhaseAfterBetting(hand.phase as HandPhase, updatedHand, mappedUpdatedPlayers);
       phaseChanged = true;
       newPhase = nextPhaseValue;
+      console.log(`[submitAction] hand=${hand.id} bettingComplete → nextPhase=${nextPhaseValue}`);
 
       if (nextPhaseValue === 'showdown') {
         await runShowdown(hand.id, tableId, updatedPlayers, hand.phase as HandPhase);
@@ -1148,9 +1222,11 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
           }
         } else if (remainingPlayers.length >= 2) {
           // Schedule next hand (with delay for UI transition)
+          console.log(`[submitAction] hand=${hand.id} scheduling next hand in 2000ms (awarding path, ${remainingPlayers.length} remaining)`);
           setTimeout(async () => {
             try {
               const nextHandNumber = (hand.handNumber || 0) + 1;
+              console.log(`[submitAction] setTimeout fired — starting hand #${nextHandNumber} for table ${tableId} (awarding path)`);
               const newHand = await startNewHand(tableId, nextHandNumber);
 
               if (pusher && newHand) {
@@ -1193,6 +1269,7 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
           }, 2000);
         }
       } else {
+        console.log(`[submitAction] hand=${hand.id} advancing ${hand.phase} → ${nextPhaseValue}`);
         await advanceToNextPhase(hand.id, tableId, updatedPlayers, nextPhaseValue);
 
         // Broadcast phase change with community cards
@@ -1209,13 +1286,16 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
         const { players: refreshedPlayers } = await tableRepo.getTableWithPlayers(tableId);
         const mappedRefreshed = refreshedPlayers.map((p) => ({ seatIndex: p.seatIndex, status: p.status }));
         const headsUpNow = isHeadsUp(mappedRefreshed);
+        console.log(`[submitAction] hand=${hand.id} after phase advance, finding first actor. dealer=${table.dealerSeat} headsUp=${headsUpNow} bb=${hand.bigBlindSeat} players:`, mappedRefreshed.map(p => `s${p.seatIndex}:${p.status}`).join(', '));
         const firstActor = getFirstPostflopActor(mappedRefreshed, table.dealerSeat, headsUpNow, hand.bigBlindSeat);
         if (firstActor) {
           nextActorSeat = firstActor.seatIndex;
+          console.log(`[submitAction] hand=${hand.id} firstActor for ${nextPhaseValue} → seat ${firstActor.seatIndex}`);
           await setNextActor(hand.id, tableId, firstActor.seatIndex);
         } else {
           // No one can act - all players are all-in
           // Auto-advance through streets with delays to build anticipation
+          console.log(`[submitAction] hand=${hand.id} no actor for ${nextPhaseValue}, scheduling all-in street progression`);
           const [updatedHandForPhase] = await db.select().from(hands).where(eq(hands.id, hand.id));
           if (updatedHandForPhase) {
             scheduleAllInStreetProgression(hand.id, tableId, updatedHandForPhase.phase as HandPhase);
@@ -1226,13 +1306,22 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
       const nextPlayer = findNextActor(updatedHand, mappedUpdatedPlayers, player.seatIndex);
       if (nextPlayer) {
         nextActorSeat = nextPlayer.seatIndex;
+        console.log(`[submitAction] hand=${hand.id} nextActor → seat ${nextPlayer.seatIndex}`);
         await setNextActor(hand.id, tableId, nextPlayer.seatIndex);
+      } else {
+        console.warn(`[submitAction] BUG: hand=${hand.id} phase=${hand.phase} betting NOT complete but findNextActor returned null! players:`, mappedUpdatedPlayers.map(p => `s${p.seatIndex}:${p.status}:bet${p.currentBet}`).join(', '), `handCurrentBet=${newCurrentBet}`);
       }
     }
 
     // Fetch final state
     const [finalHand] = await db.select().from(hands).where(eq(hands.id, hand.id));
     const { players: finalPlayers } = await tableRepo.getTableWithPlayers(tableId);
+
+    // Telemetry: warn if hand is active but no one has the turn
+    if (!isHandComplete && nextActorSeat === null && finalHand && !['complete', 'showdown', 'awarding'].includes(finalHand.phase)) {
+      console.warn(`[submitAction] WARNING: hand=${hand.id} phase=${finalHand.phase} dbActorSeat=${finalHand.currentActorSeat} — returning nextActorSeat=null for active hand! This will cause "no one's turn".`);
+      console.warn(`[submitAction] Final players:`, finalPlayers.map(p => `s${p.seatIndex}:${p.status}:stack${p.stack}:bet${p.currentBet}`).join(', '));
+    }
 
     return {
       success: true,
@@ -1264,6 +1353,8 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
 
 async function setNextActor(handId: string, tableId: string, seatIndex: number): Promise<void> {
   const db = getDb();
+
+  console.log(`[setNextActor] hand=${handId} → seat ${seatIndex}`);
 
   // Get tournament timer
   const [table] = await db.select().from(tables).where(eq(tables.id, tableId));
@@ -1306,6 +1397,8 @@ async function advanceToNextPhase(
   const db = getDb();
   const [hand] = await db.select().from(hands).where(eq(hands.id, handId));
   if (!hand) return;
+
+  console.log(`[advanceToNextPhase] hand=${handId} ${hand.phase} → ${newPhase} (currentActorSeat=${hand.currentActorSeat} will NOT be updated here — caller must set next actor)`);
 
   // Deal community cards
   const currentCards: string[] = JSON.parse(hand.communityCards || '[]');
@@ -1599,10 +1692,13 @@ async function completeHand(
 
   // Start next hand if 2+ players remain
   if (remainingPlayers.length >= 2) {
+    console.log(`[completeHand] hand=${handId} scheduling next hand in 2000ms (${remainingPlayers.length} players remaining)`);
     setTimeout(async () => {
       try {
         const nextHandNumber = (hand?.handNumber || 0) + 1;
+        console.log(`[completeHand] setTimeout fired — starting hand #${nextHandNumber} for table ${tableId}`);
         const newHand = await startNewHand(tableId, nextHandNumber);
+        console.log(`[completeHand] hand #${nextHandNumber} started: id=${newHand.id} currentActorSeat=${newHand.currentActorSeat}`);
 
         // Broadcast HAND_STARTED via Pusher so clients don't have to wait for polling
         if (pusher && newHand) {
@@ -1640,7 +1736,7 @@ async function completeHand(
           }).catch((err) => console.error('[completeHand] Failed to broadcast TURN_STARTED:', err));
         }
       } catch (err) {
-        console.error('Failed to start next hand:', err);
+        console.error(`[completeHand] Failed to start next hand for table ${tableId}:`, err);
       }
     }, 2000);
   }
