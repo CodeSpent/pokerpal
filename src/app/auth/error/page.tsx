@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -21,6 +22,14 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 export default function AuthErrorPage() {
+  return (
+    <Suspense>
+      <AuthErrorContent />
+    </Suspense>
+  );
+}
+
+function AuthErrorContent() {
   const searchParams = useSearchParams();
   const errorCode = searchParams.get('error') || 'Default';
   const message = ERROR_MESSAGES[errorCode] || ERROR_MESSAGES.Default;

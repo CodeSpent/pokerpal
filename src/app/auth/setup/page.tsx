@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
@@ -15,6 +15,14 @@ import {
 } from '@/lib/validation/profile';
 
 export default function SetupPage() {
+  return (
+    <Suspense>
+      <SetupContent />
+    </Suspense>
+  );
+}
+
+function SetupContent() {
   const { update } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
