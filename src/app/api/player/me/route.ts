@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
 import { playerRepo } from '@/lib/db/repositories';
-
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
 /**
  * GET /api/player/me
@@ -10,30 +8,29 @@ const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
  */
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
+    const authPlayer = await getAuthenticatedPlayer();
 
-    if (!playerId) {
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
 
-    // Fetch player from database
-    const player = await playerRepo.getPlayer(playerId);
+    const player = await playerRepo.getPlayer(authPlayer.playerId);
 
     if (!player) {
-      // Player ID exists in cookie but not in database
-      return NextResponse.json({ playerId, player: null });
+      return NextResponse.json({ playerId: authPlayer.playerId, player: null });
     }
 
     return NextResponse.json({
-      playerId,
+      playerId: authPlayer.playerId,
       player: {
         id: player.id,
         displayName: player.name,
         avatar: player.avatar,
+        country: player.country,
+        state: player.state,
         createdAt: player.createdAt,
       },
     });
@@ -52,10 +49,9 @@ export async function GET() {
  */
 export async function PUT(request: Request) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
+    const authPlayer = await getAuthenticatedPlayer();
 
-    if (!playerId) {
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
@@ -72,7 +68,6 @@ export async function PUT(request: Request) {
       );
     }
 
-    // Validate display name
     const trimmedName = displayName.trim();
     if (trimmedName.length < 2 || trimmedName.length > 20) {
       return NextResponse.json(
@@ -81,8 +76,7 @@ export async function PUT(request: Request) {
       );
     }
 
-    // Update player in database
-    await playerRepo.updatePlayerName(playerId, trimmedName);
+    await playerRepo.updatePlayerName(authPlayer.playerId, trimmedName);
 
     return NextResponse.json({
       success: true,

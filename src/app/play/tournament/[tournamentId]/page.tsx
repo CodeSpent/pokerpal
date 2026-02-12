@@ -2,10 +2,10 @@
 
 import { useState, useEffect, use, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
-import { usePlayerStore } from '@/stores/player-store';
 import { useChannel, useChannelEvent } from '@/hooks/usePusher';
 import { ArrowLeft, Users, Coins, Clock, Check, Lock, Eye, EyeOff, X, Play, Vote, Crown, Timer } from 'lucide-react';
 
@@ -41,7 +41,9 @@ export default function TournamentPage({
 }) {
   const { tournamentId } = use(params);
   const router = useRouter();
-  const { displayName } = usePlayerStore();
+  const { data: session } = useSession();
+  const playerId = session?.user?.playerId ?? null;
+  const displayName = session?.user?.displayName || session?.user?.name || '';
 
   const [tournament, setTournament] = useState<TournamentDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,7 +53,6 @@ export default function TournamentPage({
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [playerId, setPlayerId] = useState<string | null>(null);
   const [isVoting, setIsVoting] = useState(false);
 
   // Countdown state
@@ -98,7 +99,6 @@ export default function TournamentPage({
       ...prev,
       registeredPlayers: data.players,
     } : null);
-    // Reset ready state
     setIsReady(false);
   }, []);
 
@@ -113,7 +113,6 @@ export default function TournamentPage({
       ...prev,
       registeredPlayers: data.players,
     } : null);
-    // Check if current player is now ready
     if (data.playerId === playerId) {
       setIsReady(true);
     }
@@ -152,7 +151,6 @@ export default function TournamentPage({
       setCountdownRemaining(remaining);
 
       if (remaining <= 0) {
-        // Countdown expired - trigger game start
         fetch(`/api/tournaments/${tournamentId}/countdown`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -182,22 +180,14 @@ export default function TournamentPage({
           setTournament(data.tournament);
 
           // Check if current player is registered
-          const playerCookieRaw = document.cookie
-            .split('; ')
-            .find((row) => row.startsWith('pokerpal-player-id='))
-            ?.split('=')[1];
-          const playerCookie = playerCookieRaw ? decodeURIComponent(playerCookieRaw) : null;
-
-          if (playerCookie) {
-            setPlayerId(playerCookie);
+          if (playerId) {
             const registered = data.tournament.registeredPlayers.some(
-              (p: { id: string }) => p.id === playerCookie
+              (p: { id: string }) => p.id === playerId
             );
             setIsRegistered(registered);
 
-            // Check if player is already ready
             const playerData = data.tournament.registeredPlayers.find(
-              (p: RegisteredPlayer) => p.id === playerCookie
+              (p: RegisteredPlayer) => p.id === playerId
             );
             if (playerData?.isReady) {
               setIsReady(true);
@@ -225,10 +215,9 @@ export default function TournamentPage({
     };
 
     fetchTournament();
-  }, [tournamentId, router]);
+  }, [tournamentId, router, playerId]);
 
   const handleRegister = async (providedPassword?: string) => {
-    // If password-protected and no password provided, show modal
     if (tournament?.isPasswordProtected && !providedPassword && !showPasswordModal) {
       setShowPasswordModal(true);
       return;
@@ -242,7 +231,6 @@ export default function TournamentPage({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          displayName,
           password: providedPassword || undefined,
         }),
       });
@@ -254,12 +242,10 @@ export default function TournamentPage({
         setShowPasswordModal(false);
         setPassword('');
 
-        // If tournament started, navigate to table
         if (data.tournamentStarted && data.tables?.length > 0) {
           router.push(`/play/tournament/${tournamentId}/table/${data.tables[0]}`);
         }
       } else if (data.requiresPassword) {
-        // Tournament requires password
         setShowPasswordModal(true);
         setError(null);
       } else {
@@ -304,7 +290,6 @@ export default function TournamentPage({
     setError(null);
 
     try {
-      // Use the new countdown API for starting
       if (action === 'force' || action === 'initiate') {
         const res = await fetch(`/api/tournaments/${tournamentId}/countdown`, {
           method: 'POST',
@@ -320,7 +305,6 @@ export default function TournamentPage({
           setError(data.error);
         }
       } else {
-        // Fallback to old early-start API for voting
         const res = await fetch(`/api/tournaments/${tournamentId}/early-start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -376,19 +360,8 @@ export default function TournamentPage({
   const countdownSeconds = Math.ceil(countdownRemaining / 1000);
   const readyCount = tournament?.registeredPlayers.filter(p => p.isReady).length ?? 0;
 
-  // Helper to check if a player is the current user
   const isCurrentPlayer = (playerIdToCheck: string) => {
-    if (playerId && playerIdToCheck === playerId) return true;
-    // Fallback: check cookie directly in case state hasn't updated
-    if (typeof document !== 'undefined') {
-      const cookieRaw = document.cookie
-        .split('; ')
-        .find((row) => row.startsWith('pokerpal-player-id='))
-        ?.split('=')[1];
-      const cookieValue = cookieRaw ? decodeURIComponent(cookieRaw) : null;
-      if (cookieValue && playerIdToCheck === cookieValue) return true;
-    }
-    return false;
+    return playerId !== null && playerIdToCheck === playerId;
   };
 
   if (isLoading) {
@@ -550,7 +523,7 @@ export default function TournamentPage({
         </motion.div>
 
 
-        {/* Early Start Controls - Only show if registered, not full, and no countdown */}
+        {/* Early Start Controls */}
         {isRegistered && tournament.registeredPlayers.length < tournament.maxPlayers && canStartEarly && !isCountdownActive && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -563,7 +536,6 @@ export default function TournamentPage({
             </div>
 
             {!tournament.earlyStart.isVotingActive ? (
-              // No active vote
               <>
                 {isHost ? (
                   <div className="space-y-3">
@@ -590,7 +562,6 @@ export default function TournamentPage({
                 )}
               </>
             ) : (
-              // Active vote
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-zinc-300">
@@ -601,7 +572,6 @@ export default function TournamentPage({
                   </span>
                 </div>
 
-                {/* Vote progress */}
                 <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
                   <motion.div
                     className="h-full bg-amber-500"
@@ -613,7 +583,6 @@ export default function TournamentPage({
                   />
                 </div>
 
-                {/* Vote buttons */}
                 <div className="flex gap-3">
                   {!hasVoted ? (
                     <button
@@ -694,7 +663,6 @@ export default function TournamentPage({
                   </span>
                   {isCountdownActive && (
                     isCurrentPlayer(player.id) ? (
-                      // Current player - show clickable button or ready state
                       player.isReady || isReady ? (
                         <span className="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">
                           Ready
@@ -713,7 +681,6 @@ export default function TournamentPage({
                         </button>
                       )
                     ) : (
-                      // Other players - show status
                       <span className={cn(
                         'text-xs px-2 py-1 rounded',
                         player.isReady

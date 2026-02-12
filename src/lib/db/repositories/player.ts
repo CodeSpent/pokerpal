@@ -4,7 +4,7 @@
  * Database operations for player management.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { getDb } from '../index';
 import { players, type Player, type NewPlayer } from '../schema';
 import { generateId, now } from '../transaction';
@@ -71,4 +71,49 @@ export async function updatePlayerName(id: string, name: string): Promise<void> 
 export async function updatePlayerAvatar(id: string, avatar: string): Promise<void> {
   const db = getDb();
   await db.update(players).set({ avatar }).where(eq(players.id, id));
+}
+
+/**
+ * Get a player by their auth user ID
+ */
+export async function getPlayerByUserId(userId: string): Promise<Player | null> {
+  const db = getDb();
+  const [player] = await db.select().from(players).where(eq(players.userId, userId));
+  return player ?? null;
+}
+
+/**
+ * Get a player by their username (case-insensitive)
+ */
+export async function getPlayerByName(name: string): Promise<Player | null> {
+  const db = getDb();
+  const [player] = await db
+    .select()
+    .from(players)
+    .where(sql`lower(${players.name}) = ${name.toLowerCase()}`);
+  return player ?? null;
+}
+
+export interface CreatePlayerProfile {
+  username: string;
+  country: string;
+  state: string;
+}
+
+/**
+ * Create a player record linked to an authenticated user
+ */
+export async function createPlayerForUser(userId: string, profile: CreatePlayerProfile): Promise<Player> {
+  const db = getDb();
+  const newPlayer: NewPlayer = {
+    id: generateId(),
+    name: profile.username.toLowerCase(),
+    userId,
+    country: profile.country,
+    state: profile.state,
+    createdAt: now(),
+  };
+
+  await db.insert(players).values(newPlayer);
+  return newPlayer as Player;
 }

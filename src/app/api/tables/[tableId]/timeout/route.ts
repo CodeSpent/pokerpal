@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import Pusher from 'pusher';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
 import { tableRepo, handRepo } from '@/lib/db/repositories';
 import { handleTurnTimeout, getValidActions } from '@/lib/game/game-service';
-
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
 // Initialize Pusher server (only if credentials exist)
 let pusher: Pusher | null = null;
@@ -27,15 +25,14 @@ export async function POST(
   { params }: { params: Promise<{ tableId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tableId } = await params;
 

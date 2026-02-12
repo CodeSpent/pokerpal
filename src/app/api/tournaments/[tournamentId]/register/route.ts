@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { playerRepo, tournamentRepo } from '@/lib/db/repositories';
+import { tournamentRepo } from '@/lib/db/repositories';
 import {
   registerPlayerForTournament,
   unregisterPlayerFromTournament,
 } from '@/lib/game/tournament-service';
-
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
 
 /**
  * POST /api/tournaments/[tournamentId]/register
@@ -17,23 +15,16 @@ export async function POST(
   { params }: { params: Promise<{ tournamentId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tournamentId } = await params;
-    const body = await request.json();
-    const { displayName } = body;
-
-    // Ensure player exists
-    const playerName = displayName || 'Player';
-    await playerRepo.ensurePlayer(playerId, playerName);
 
     // Register for tournament (Pusher broadcasts happen in service)
     const result = await registerPlayerForTournament(tournamentId, playerId);
@@ -74,15 +65,14 @@ export async function DELETE(
   { params }: { params: Promise<{ tournamentId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tournamentId } = await params;
     const result = await unregisterPlayerFromTournament(tournamentId, playerId);

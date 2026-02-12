@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { tournamentRepo } from '@/lib/db/repositories';
 import {
   markPlayerReady,
   startTournament,
   broadcastGameStarting,
 } from '@/lib/game/tournament-service';
-
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
 
 /**
  * POST /api/tournaments/[tournamentId]/ready
@@ -18,15 +16,14 @@ export async function POST(
   { params }: { params: Promise<{ tournamentId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tournamentId } = await params;
 

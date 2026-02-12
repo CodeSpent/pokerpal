@@ -1,46 +1,29 @@
+import { auth } from '@/lib/auth/config';
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
-const PLAYER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
+export default auth((req) => {
+  const { pathname } = req.nextUrl;
 
-/**
- * Middleware to handle anonymous player identity
- *
- * - Generates a UUID for new visitors
- * - Stores it in an HttpOnly cookie
- * - Only applies to /play/* routes (multiplayer section)
- */
-export function middleware(request: NextRequest) {
-  // Only apply to multiplayer routes
-  if (!request.nextUrl.pathname.startsWith('/play')) {
+  // Only protect /play/* routes
+  if (!pathname.startsWith('/play')) {
     return NextResponse.next();
   }
 
-  // Check if player already has an ID
-  const existingPlayerId = request.cookies.get(PLAYER_COOKIE_NAME)?.value;
-
-  if (existingPlayerId) {
-    // Player exists, continue normally
-    return NextResponse.next();
+  // Not authenticated -> redirect to sign-in
+  if (!req.auth) {
+    const signInUrl = new URL('/auth/signin', req.url);
+    signInUrl.searchParams.set('callbackUrl', pathname);
+    return NextResponse.redirect(signInUrl);
   }
 
-  // Generate new player ID
-  const newPlayerId = crypto.randomUUID();
+  // Authenticated but no player record -> redirect to setup
+  if (!req.auth.user?.playerId) {
+    const setupUrl = new URL('/auth/setup', req.url);
+    return NextResponse.redirect(setupUrl);
+  }
 
-  // Create response with cookie
-  const response = NextResponse.next();
-
-  response.cookies.set(PLAYER_COOKIE_NAME, newPlayerId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: PLAYER_COOKIE_MAX_AGE,
-    path: '/',
-  });
-
-  return response;
-}
+  return NextResponse.next();
+});
 
 export const config = {
   matcher: ['/play/:path*'],

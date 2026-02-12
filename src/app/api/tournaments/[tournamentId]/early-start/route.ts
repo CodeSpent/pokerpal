@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { tournamentRepo } from '@/lib/db/repositories';
 import { voteForEarlyStart, startTournament } from '@/lib/game/tournament-service';
 import { getDb } from '@/lib/db';
 import { earlyStartVotes } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
 
 /**
  * POST /api/tournaments/[tournamentId]/early-start
@@ -17,15 +15,14 @@ export async function POST(
   { params }: { params: Promise<{ tournamentId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tournamentId } = await params;
     const body = await request.json();

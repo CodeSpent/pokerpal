@@ -13,20 +13,95 @@ import {
   serial,
   timestamp,
   unique,
+  uniqueIndex,
   index,
   boolean,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
+
+// =============================================================================
+// NextAuth Tables
+// =============================================================================
+
+export const users = pgTable('users', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text('name'),
+  email: text('email').unique(),
+  emailVerified: timestamp('email_verified', { mode: 'date' }),
+  image: text('image'),
+  passwordHash: text('password_hash'),
+  createdAt: bigint('created_at', { mode: 'number' })
+    .notNull()
+    .$defaultFn(() => Date.now()),
+});
+
+export const accounts = pgTable(
+  'accounts',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    provider: text('provider').notNull(),
+    providerAccountId: text('provider_account_id').notNull(),
+    refresh_token: text('refresh_token'),
+    access_token: text('access_token'),
+    expires_at: integer('expires_at'),
+    token_type: text('token_type'),
+    scope: text('scope'),
+    id_token: text('id_token'),
+    session_state: text('session_state'),
+  },
+  (table) => [primaryKey({ columns: [table.provider, table.providerAccountId] })]
+);
+
+export const sessions = pgTable('sessions', {
+  sessionToken: text('session_token').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expires: timestamp('expires', { mode: 'date' }).notNull(),
+});
+
+export const verificationTokens = pgTable(
+  'verification_tokens',
+  {
+    identifier: text('identifier').notNull(),
+    token: text('token').notNull(),
+    expires: timestamp('expires', { mode: 'date' }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.identifier, table.token] })]
+);
 
 // =============================================================================
 // Players
 // =============================================================================
 
-export const players = pgTable('players', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  avatar: text('avatar'),
-  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-});
+export const players = pgTable(
+  'players',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    avatar: text('avatar'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    // Auth link (nullable for anonymous players)
+    userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+    // Profile fields (nullable for legacy/anonymous players)
+    country: text('country'),
+    state: text('state'),
+    // Stats (persisted for authenticated users)
+    chipBalance: integer('chip_balance').notNull().default(10000),
+    totalGamesPlayed: integer('total_games_played').notNull().default(0),
+    totalWinnings: integer('total_winnings').notNull().default(0),
+    tournamentsWon: integer('tournaments_won').notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex('idx_players_name').on(table.name),
+    index('idx_players_user_id').on(table.userId),
+  ]
+);
 
 // =============================================================================
 // Tournaments
@@ -286,3 +361,12 @@ export type NewShowdownResult = typeof showdownResults.$inferInsert;
 
 export type Event = typeof events.$inferSelect;
 export type NewEvent = typeof events.$inferInsert;
+
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+
+export type Account = typeof accounts.$inferSelect;
+export type NewAccount = typeof accounts.$inferInsert;
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;

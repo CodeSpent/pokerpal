@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useCallback } from 'react';
+import { useSession } from 'next-auth/react';
 import { useChannel, useChannelEvent, usePusher } from './usePusher';
 import { useTableStore } from '@/stores/table-store';
 import type { TableEvent } from '@/lib/poker-engine-v2/types';
@@ -11,18 +12,14 @@ import type { TableEvent } from '@/lib/poker-engine-v2/types';
 export function useTableChannel(tableId: string | null) {
   const { isConnected } = usePusher();
   const { applyEvent, setConnected, setHeroHoleCards } = useTableStore();
+  const { data: session } = useSession();
 
   // Subscribe to public table channel
   const channelName = tableId ? `table-${tableId}` : null;
   const channel = useChannel(channelName);
 
   // Subscribe to private player channel for hole cards
-  const playerId = typeof window !== 'undefined'
-    ? document.cookie
-        .split('; ')
-        .find((row) => row.startsWith('pokerpal-player-id='))
-        ?.split('=')[1]
-    : null;
+  const playerId = session?.user?.playerId ?? null;
 
   const privateChannelName = playerId ? `private-player-${playerId}` : null;
   const privateChannel = useChannel(privateChannelName);

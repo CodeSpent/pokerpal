@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import Pusher from 'pusher';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
 import { tableRepo } from '@/lib/db/repositories';
 import { submitAction, getValidActions, type ActionType } from '@/lib/game/game-service';
-
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
 // Initialize Pusher server (only if credentials exist)
 let pusher: Pusher | null = null;
@@ -27,15 +25,14 @@ export async function POST(
   { params }: { params: Promise<{ tableId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tableId } = await params;
 
@@ -150,6 +147,7 @@ export async function POST(
       // Use action_deadline from hand (null = unlimited timer)
       const expiresAt = actionResult.hand.actionDeadline ?? null;
       const isUnlimited = expiresAt === null;
+      console.log(`[action/route] hand=${handId} broadcasting TURN_STARTED for seat ${actionResult.nextActorSeat}`);
 
       // Compute validActions for the next actor
       const nextActorPlayer = actionResult.players.find(
@@ -176,6 +174,11 @@ export async function POST(
         isUnlimited,
         validActions: validActionsForNextActor,
       });
+    }
+
+    // Log when no TURN_STARTED is being broadcast for an active hand
+    if (actionResult.nextActorSeat === null && !actionResult.isHandComplete) {
+      console.warn(`[action/route] hand=${handId} phase=${actionResult.hand.phase} — NOT broadcasting TURN_STARTED (nextActorSeat=null, isHandComplete=${actionResult.isHandComplete}). DB currentActorSeat=${actionResult.hand.currentActorSeat}`);
     }
 
     // Note: HAND_COMPLETE is NOT broadcast here for showdowns

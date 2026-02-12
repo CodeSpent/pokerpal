@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
 import { tableRepo } from '@/lib/db/repositories';
 import { handlePoll } from '@/lib/game/game-service';
-
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
 /**
  * GET /api/tables/[tableId]/poll
@@ -18,15 +16,14 @@ export async function GET(
   { params }: { params: Promise<{ tableId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tableId } = await params;
 

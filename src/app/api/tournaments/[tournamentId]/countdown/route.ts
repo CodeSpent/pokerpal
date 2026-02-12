@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { tournamentRepo } from '@/lib/db/repositories';
 import {
   startCountdown,
@@ -8,8 +7,8 @@ import {
   broadcastGameStarting,
 } from '@/lib/game/tournament-service';
 import { now } from '@/lib/db/transaction';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
 
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 const COUNTDOWN_DURATION_MS = 20_000;
 
 /**
@@ -67,15 +66,14 @@ export async function POST(
   { params }: { params: Promise<{ tournamentId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tournamentId } = await params;
     const body = await request.json().catch(() => ({}));
@@ -187,15 +185,14 @@ export async function DELETE(
   { params }: { params: Promise<{ tournamentId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tournamentId } = await params;
 

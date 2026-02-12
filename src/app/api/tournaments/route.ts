@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { tournamentRepo, playerRepo, eventRepo } from '@/lib/db/repositories';
-import { now } from '@/lib/db/transaction';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
+import { tournamentRepo, eventRepo } from '@/lib/db/repositories';
 import { getPusher, channels, tournamentEvents } from '@/lib/pusher-server';
-
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
 /**
  * GET /api/tournaments
@@ -21,7 +18,7 @@ export async function GET() {
         status: t.status,
         registeredCount: await tournamentRepo.getRegistrationCount(t.id),
         maxPlayers: t.maxPlayers,
-        buyIn: 100, // Placeholder
+        buyIn: 100,
         startingChips: t.startingChips,
         createdAt: t.createdAt,
         isPasswordProtected: false,
@@ -44,15 +41,16 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
+    const authPlayer = await getAuthenticatedPlayer();
 
-    if (!playerId) {
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+
+    const { playerId } = authPlayer;
 
     const body = await request.json();
     const {
@@ -61,7 +59,6 @@ export async function POST(request: Request) {
       tableSize = 6,
       startingChips = 3000,
       turnTimerSeconds = 30,
-      displayName,
     } = body;
 
     if (!name || typeof name !== 'string') {
@@ -96,10 +93,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    // Ensure creator player exists
-    const playerName = displayName || 'Player';
-    await playerRepo.ensurePlayer(playerId, playerName);
 
     // Create tournament
     const tournament = await tournamentRepo.createTournament({
@@ -149,7 +142,7 @@ export async function POST(request: Request) {
         id: tournament.id,
         name: tournament.name,
         status: tournament.status,
-        registeredCount: 1, // Creator is auto-registered
+        registeredCount: 1,
         maxPlayers: tournament.maxPlayers,
         startingChips: tournament.startingChips,
         createdAt: tournament.createdAt,

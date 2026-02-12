@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
 import { tableRepo } from '@/lib/db/repositories';
 import { advanceGameState, getValidActions } from '@/lib/game/game-service';
 import { parseCard } from '@/lib/card-utils';
-
-const PLAYER_COOKIE_NAME = 'pokerpal-player-id';
 
 /**
  * GET /api/tables/[tableId]
@@ -15,15 +13,14 @@ export async function GET(
   { params }: { params: Promise<{ tableId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get(PLAYER_COOKIE_NAME)?.value;
-
-    if (!playerId) {
+    const authPlayer = await getAuthenticatedPlayer();
+    if (!authPlayer) {
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
       );
     }
+    const { playerId } = authPlayer;
 
     const { tableId } = await params;
 
@@ -167,11 +164,9 @@ export async function GET(
       };
     }
 
-    console.log('[GET /api/tables] tableId:', tableId);
-    console.log('[GET /api/tables] phase:', phase);
-    console.log('[GET /api/tables] table.status:', table.status);
-    if (tournamentWinner) {
-      console.log('[GET /api/tables] tournamentWinner:', tournamentWinner.name);
+    // Telemetry: detect "no one's turn" state during active hand
+    if (hand && !['complete', 'showdown', 'awarding', 'hand-complete', 'dealing'].includes(hand.phase) && hand.currentActorSeat === null) {
+      console.warn(`[GET /api/tables] NO_ACTOR_BUG: hand=${hand.id} phase=${hand.phase} currentActorSeat=null during betting phase. Players:`, players.map(p => `s${p.seatIndex}:${p.status}:bet${p.currentBet}:stack${p.stack}`).join(', '));
     }
 
     return NextResponse.json({
