@@ -5,15 +5,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
-import { ArrowLeft, Users, Coins, Clock, Timer, Lock, Eye, EyeOff, Infinity } from 'lucide-react';
-import { usePlayerStore } from '@/stores/player-store';
+import { ArrowLeft, Users, Coins, Clock, Timer, Lock, Eye, EyeOff } from 'lucide-react';
 
 const PLAYER_COUNTS = [
-  { value: 2, label: 'Heads-Up', description: '1v1 battle' },
-  { value: 3, label: '3 Players', description: 'Quick three-way' },
-  { value: 4, label: '4 Players', description: 'Small group' },
-  { value: 5, label: '5 Players', description: 'Nearly full' },
-  { value: 6, label: '6 Players', description: 'Full table' },
+  { value: 2, label: 'Heads-Up' },
+  { value: 3, label: '3 Max' },
+  { value: 4, label: '4 Max' },
+  { value: 5, label: '5 Max' },
+  { value: 6, label: '6 Max' },
 ];
 
 const STARTING_STACKS = [
@@ -31,7 +30,6 @@ const TURN_TIMERS = [
 
 export default function CreateTournamentPage() {
   const router = useRouter();
-  const { displayName } = usePlayerStore();
 
   const [name, setName] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(6);
@@ -65,7 +63,6 @@ export default function CreateTournamentPage() {
           startingChips,
           turnTimerSeconds,
           password: password.trim() || undefined,
-          displayName,
         }),
       });
 
@@ -105,7 +102,7 @@ export default function CreateTournamentPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           onSubmit={handleSubmit}
-          className="bg-zinc-900 rounded-xl p-6 border border-zinc-800"
+          className="bg-zinc-900 rounded-xl p-4 sm:p-6 border border-zinc-800"
         >
           {/* Tournament name */}
           <div className="mb-6">
@@ -133,21 +130,21 @@ export default function CreateTournamentPage() {
               <Users className="inline-block w-4 h-4 mr-1" />
               Players Needed
             </label>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
               {PLAYER_COUNTS.map((count) => (
                 <button
                   key={count.value}
                   type="button"
                   onClick={() => setMaxPlayers(count.value)}
                   className={cn(
-                    'flex flex-col items-center p-3 rounded-lg border transition-all',
+                    'flex flex-col items-center p-2 sm:p-3 rounded-lg border transition-all',
                     maxPlayers === count.value
                       ? 'bg-emerald-600/20 border-emerald-500 text-white'
                       : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-600'
                   )}
                 >
-                  <div className="text-2xl font-bold">{count.value}</div>
-                  <div className="text-xs text-zinc-400 text-center">{count.label}</div>
+                  <div className="text-xl sm:text-2xl font-bold">{count.value}</div>
+                  <div className="text-[10px] sm:text-xs text-zinc-400 whitespace-nowrap">{count.label}</div>
                 </button>
               ))}
             </div>
@@ -159,21 +156,21 @@ export default function CreateTournamentPage() {
               <Coins className="inline-block w-4 h-4 mr-1" />
               Starting Stack
             </label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
               {STARTING_STACKS.map((stack) => (
                 <button
                   key={stack.value}
                   type="button"
                   onClick={() => setStartingChips(stack.value)}
                   className={cn(
-                    'flex flex-col items-center p-4 rounded-lg border transition-all',
+                    'flex flex-col items-center p-3 sm:p-4 rounded-lg border transition-all',
                     startingChips === stack.value
                       ? 'bg-emerald-600/20 border-emerald-500 text-white'
                       : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-600'
                   )}
                 >
-                  <div className="text-xl font-bold font-mono">{stack.label}</div>
-                  <div className="text-sm text-zinc-400">{stack.description}</div>
+                  <div className="text-lg sm:text-xl font-bold font-mono whitespace-nowrap">{stack.label}</div>
+                  <div className="text-xs sm:text-sm text-zinc-400 whitespace-nowrap">{stack.description}</div>
                 </button>
               ))}
             </div>
@@ -185,21 +182,21 @@ export default function CreateTournamentPage() {
               <Timer className="inline-block w-4 h-4 mr-1" />
               Turn Timer
             </label>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
               {TURN_TIMERS.map((timer) => (
                 <button
                   key={timer.value ?? 'unlimited'}
                   type="button"
                   onClick={() => setTurnTimerSeconds(timer.value)}
                   className={cn(
-                    'flex flex-col items-center p-4 rounded-lg border transition-all',
+                    'flex flex-col items-center p-3 sm:p-4 rounded-lg border transition-all',
                     turnTimerSeconds === timer.value
                       ? 'bg-emerald-600/20 border-emerald-500 text-white'
                       : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-600'
                   )}
                 >
-                  <div className="text-xl font-bold font-mono">{timer.label}</div>
-                  <div className="text-sm text-zinc-400">{timer.description}</div>
+                  <div className="text-lg sm:text-xl font-bold font-mono whitespace-nowrap">{timer.label}</div>
+                  <div className="text-xs sm:text-sm text-zinc-400 whitespace-nowrap">{timer.description}</div>
                 </button>
               ))}
             </div>

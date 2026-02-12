@@ -5,21 +5,15 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
-import { usePlayerStore, useNeedsRegistration } from '@/stores/player-store';
 import { useChannel, useChannelEvent } from '@/hooks/usePusher';
 import { Plus, Users, Trophy, Coins, ArrowLeft, RefreshCw, Lock } from 'lucide-react';
 import type { TournamentSummary } from '@/lib/poker-engine-v2/types';
 
 export default function LobbyPage() {
   const router = useRouter();
-  const { displayName, chipBalance, setPlayer } = usePlayerStore();
-  const needsRegistration = useNeedsRegistration();
 
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [showNameInput, setShowNameInput] = useState(false);
-  const [nameInput, setNameInput] = useState('');
-  const [error, setError] = useState<string | null>(null);
 
   // Subscribe to tournaments channel for real-time updates
   const tournamentsChannel = useChannel('tournaments');
@@ -27,7 +21,6 @@ export default function LobbyPage() {
   // Handle new tournament created
   const handleTournamentCreated = useCallback((data: TournamentSummary) => {
     setTournaments((prev) => {
-      // Avoid duplicates
       if (prev.some((t) => t.id === data.id)) {
         return prev;
       }
@@ -36,13 +29,6 @@ export default function LobbyPage() {
   }, []);
 
   useChannelEvent(tournamentsChannel, 'TOURNAMENT_CREATED', handleTournamentCreated);
-
-  // Check if player needs to set name
-  useEffect(() => {
-    if (needsRegistration) {
-      setShowNameInput(true);
-    }
-  }, [needsRegistration]);
 
   // Fetch tournaments
   const fetchTournaments = async () => {
@@ -62,143 +48,49 @@ export default function LobbyPage() {
     fetchTournaments();
   }, []);
 
-  // Handle name submission
-  const handleNameSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (nameInput.trim().length < 2) {
-      setError('Name must be at least 2 characters');
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/player', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: nameInput.trim() }),
-      });
-
-      const data = await res.json();
-
-      if (data.player) {
-        setPlayer(data.player);
-        setShowNameInput(false);
-        setError(null);
-      } else {
-        setError(data.error || 'Failed to create player');
-      }
-    } catch (err) {
-      setError('Failed to create player');
-    }
-  };
-
-  // Name input modal
-  if (showNameInput) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="w-full max-w-md bg-zinc-900 rounded-xl p-6 border border-zinc-800"
-        >
-          <h2 className="text-2xl font-bold text-white mb-2">
-            Welcome to PokerPal
-          </h2>
-          <p className="text-zinc-400 mb-6">
-            Enter a display name to join the tables
-          </p>
-
-          <form onSubmit={handleNameSubmit}>
-            <input
-              type="text"
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              placeholder="Your display name"
-              maxLength={20}
-              className={cn(
-                'w-full px-4 py-3 rounded-lg bg-zinc-800 border',
-                'text-white placeholder-zinc-500',
-                'focus:outline-none focus:ring-2 focus:ring-emerald-500',
-                error ? 'border-red-500' : 'border-zinc-700'
-              )}
-              autoFocus
-            />
-
-            {error && (
-              <p className="mt-2 text-sm text-red-400">{error}</p>
-            )}
-
-            <button
-              type="submit"
-              className={cn(
-                'w-full mt-4 px-4 py-3 rounded-lg font-bold',
-                'bg-emerald-600 text-white hover:bg-emerald-700',
-                'transition-colors'
-              )}
-            >
-              Start Playing
-            </button>
-          </form>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen p-4 md:p-8">
       {/* Header */}
       <div className="max-w-6xl mx-auto mb-8">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-zinc-400" />
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold text-white">Tournament Lobby</h1>
-              <p className="text-zinc-400">Join a table or create your own</p>
-            </div>
-          </div>
-
-          {/* Player info */}
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <div className="text-white font-medium">{displayName}</div>
-              <div className="flex items-center gap-1 text-emerald-400">
-                <Coins className="w-4 h-4" />
-                <span className="font-mono">{chipBalance.toLocaleString()}</span>
-              </div>
-            </div>
+        <div className="flex items-center gap-3 mb-6">
+          <Link
+            href="/"
+            className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors shrink-0"
+          >
+            <ArrowLeft className="w-5 h-5 text-zinc-400" />
+          </Link>
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Tournament Lobby</h1>
+            <p className="text-zinc-400 text-sm">Join a table or create your own</p>
           </div>
         </div>
 
         {/* Actions */}
-        <div className="flex gap-4">
+        <div className="flex gap-3">
           <Link
             href="/play/create"
             className={cn(
-              'flex items-center gap-2 px-6 py-3 rounded-lg font-bold',
+              'flex items-center gap-2 px-4 sm:px-6 py-3 rounded-lg font-bold whitespace-nowrap',
               'bg-emerald-600 text-white hover:bg-emerald-700',
               'transition-colors'
             )}
           >
-            <Plus className="w-5 h-5" />
-            Create Tournament
+            <Plus className="w-5 h-5 shrink-0" />
+            <span className="hidden sm:inline">Create Tournament</span>
+            <span className="sm:hidden">Create</span>
           </Link>
 
           <button
             onClick={fetchTournaments}
             disabled={isLoading}
             className={cn(
-              'flex items-center gap-2 px-4 py-3 rounded-lg',
+              'flex items-center gap-2 px-4 py-3 rounded-lg whitespace-nowrap',
               'bg-zinc-800 text-zinc-300 hover:bg-zinc-700',
               'transition-colors',
               isLoading && 'opacity-50'
             )}
           >
-            <RefreshCw className={cn('w-5 h-5', isLoading && 'animate-spin')} />
+            <RefreshCw className={cn('w-5 h-5 shrink-0', isLoading && 'animate-spin')} />
             Refresh
           </button>
         </div>
@@ -223,13 +115,13 @@ export default function LobbyPage() {
             <Link
               href="/play/create"
               className={cn(
-                'inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold',
+                'inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold whitespace-nowrap',
                 'bg-emerald-600 text-white hover:bg-emerald-700',
                 'transition-colors'
               )}
             >
-              <Plus className="w-5 h-5" />
-              Create Tournament
+              <Plus className="w-5 h-5 shrink-0" />
+              Create
             </Link>
           </div>
         ) : (
@@ -239,7 +131,6 @@ export default function LobbyPage() {
                 key={tournament.id}
                 tournament={tournament}
                 onRegister={() => {
-                  // Navigate to tournament page
                   router.push(`/play/tournament/${tournament.id}`);
                 }}
               />
