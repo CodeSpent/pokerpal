@@ -217,7 +217,7 @@ export function Seat({
           </div>
 
           {/* Hole cards - larger for hero with peek functionality */}
-          <div className="relative">
+          <div className="relative -ml-2 mr-2">
             <HoleCards
               cards={player.holeCards}
               isHero={true}
@@ -239,7 +239,9 @@ export function Seat({
 
           {/* Current bet */}
           {player.currentBet > 0 && (
-            <BetChip amount={player.currentBet} />
+            <div className="shrink-0">
+              <BetChip amount={player.currentBet} />
+            </div>
           )}
         </div>
 
@@ -335,6 +337,19 @@ export function Seat({
         </motion.div>
       )}
 
+      {/* Bet / All-in indicator — above cards so it's not obscured */}
+      {(player.currentBet > 0 || (isAllIn && !isFolded)) && (
+        <div className="flex justify-center mb-1">
+          {isAllIn && !isFolded ? (
+            <span className="px-1.5 py-0.5 bg-action-foldMuted/60 text-red-300 text-[9px] font-semibold rounded border border-action-fold/30">
+              All In
+            </span>
+          ) : (
+            <BetChip amount={player.currentBet} />
+          )}
+        </div>
+      )}
+
       {/* Hole cards */}
       <div className="flex justify-center">
         <HoleCards
@@ -346,22 +361,6 @@ export function Seat({
           revealedCards={shownCards}
         />
       </div>
-
-      {/* Current bet */}
-      {player.currentBet > 0 && (
-        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2">
-          <BetChip amount={player.currentBet} />
-        </div>
-      )}
-
-      {/* All-in status */}
-      {isAllIn && !isFolded && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-          <span className="px-1.5 py-0.5 bg-action-foldMuted/60 text-red-300 text-[9px] font-semibold rounded border border-action-fold/30">
-            All In
-          </span>
-        </div>
-      )}
 
       {/* Actor glow */}
       {isActor && (
