@@ -578,7 +578,10 @@ async function maybeRecoverActorState(tableId: string): Promise<boolean> {
     console.log(`[maybeRecoverActorState] hand=${hand.id} advanced to seat ${nextActor.seatIndex}`);
     return true;
   } else {
-    console.warn(`[maybeRecoverActorState] hand=${hand.id} findNextActor returned null from seat ${hand.currentActorSeat}. players:`, mappedPlayers.map(p => `s${p.seatIndex}:${p.status}:bet${p.currentBet}`).join(', '));
+    // No one can act — clear currentActorSeat so maybeAdvanceAllInStreet can handle it
+    console.warn(`[maybeRecoverActorState] hand=${hand.id} no next actor from seat ${hand.currentActorSeat}, clearing actor. players:`, mappedPlayers.map(p => `s${p.seatIndex}:${p.status}:bet${p.currentBet}`).join(', '));
+    await handRepo.updateHand(hand.id, { currentActorSeat: null, actionDeadline: null });
+    return true;
   }
 
   return false;
@@ -1317,8 +1320,9 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
           await setNextActor(hand.id, tableId, firstActor.seatIndex);
         } else {
           // No one can act - all players are all-in
-          // Polling via advanceGameState → maybeAdvanceAllInStreet will advance streets
-          console.log(`[submitAction] hand=${hand.id} no actor for ${nextPhaseValue}, all-in progression handled by polling`);
+          // Clear currentActorSeat so maybeAdvanceAllInStreet can detect and advance
+          console.log(`[submitAction] hand=${hand.id} no actor for ${nextPhaseValue}, clearing actor — polling will advance streets`);
+          await db.update(hands).set({ currentActorSeat: null, actionDeadline: null }).where(eq(hands.id, hand.id));
         }
       }
     } else {
