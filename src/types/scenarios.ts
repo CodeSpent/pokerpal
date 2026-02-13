@@ -135,6 +135,33 @@ export const INITIAL_STATS: UserStats = {
   lastSessionDate: 0,
 };
 
+// Quiz scoring modes
+export type ScoringMode = "after-each" | "at-end";
+
+// Quiz session configuration
+export interface QuizConfig {
+  difficulty: Difficulty | "all";
+  categories: ScenarioCategory[];
+  questionCount: number | "all";
+  scoringMode: ScoringMode;
+  selectedScenarioIds: string[];
+}
+
+// Persisted quiz preferences
+export interface QuizPreferences {
+  defaultDifficulty: Difficulty | "all";
+  defaultCategories: ScenarioCategory[];
+  defaultQuestionCount: number | "all";
+  defaultScoringMode: ScoringMode;
+}
+
+// A single answer in a quiz session
+export interface QuizSessionAnswer {
+  scenarioId: string;
+  selectedOptionId: string;
+  timeSpent: number;
+}
+
 // Category display names
 export const CATEGORY_NAMES: Record<ScenarioCategory, string> = {
   preflop: "Preflop",

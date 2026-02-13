@@ -471,10 +471,13 @@ export async function advanceGameState(tableId: string): Promise<AdvanceResult> 
     console.log(`[advanceGameState] table=${tableId} recovered actor state`);
   }
 
-  // 4. Complete stale showdowns
+  // 4. Advance all-in streets (poll-driven, replaces unreliable setTimeout chains)
+  await maybeAdvanceAllInStreet(tableId);
+
+  // 5. Complete stale showdowns
   result.showdownCompleted = await maybeCompleteShowdown(tableId);
 
-  // 5. Start new hand if needed
+  // 6. Start new hand if needed
   const newHandResult = await maybeStartNewHand(tableId);
   result.newHandStarted = newHandResult.started;
   result.hand = newHandResult.hand;
@@ -545,14 +548,7 @@ async function maybeRecoverActorState(tableId: string): Promise<boolean> {
       await tableRepo.updatePlayerBySeat(tableId, recoveredActor.seatIndex, { status: 'active' });
       return true;
     } else {
-      console.warn(`[maybeRecoverActorState] hand=${hand.id} no players who can act — checking if should advance phase or showdown`);
-      // Check if all players are all-in and we need to run through streets
-      const active = getActivePlayers(mappedPlayers);
-      if (active.length >= 2 && active.every(p => p.status === 'all_in')) {
-        console.warn(`[maybeRecoverActorState] hand=${hand.id} all players all-in, scheduling street progression`);
-        scheduleAllInStreetProgression(hand.id, tableId, hand.phase as HandPhase);
-        return true;
-      }
+      console.warn(`[maybeRecoverActorState] hand=${hand.id} no players who can act — deferring to maybeAdvanceAllInStreet`);
     }
     return false;
   }
@@ -586,6 +582,57 @@ async function maybeRecoverActorState(tableId: string): Promise<boolean> {
   }
 
   return false;
+}
+
+/**
+ * Advance all-in hands through streets via polling (replaces unreliable setTimeout chains).
+ * When all remaining players are all-in with no actor, this advances one street per poll cycle.
+ */
+async function maybeAdvanceAllInStreet(tableId: string): Promise<boolean> {
+  const hand = await getBettingHand(tableId);
+  if (!hand) return false;
+  if (hand.currentActorSeat !== null) return false;
+
+  const { players } = await tableRepo.getTableWithPlayers(tableId);
+  const mappedPlayers = players.map((p) => ({
+    seatIndex: p.seatIndex,
+    status: p.status,
+    currentBet: p.currentBet,
+  }));
+
+  const active = getActivePlayers(mappedPlayers);
+  if (active.length < 2) return false;
+  if (!active.every((p) => p.status === 'all_in')) return false;
+
+  const phase = hand.phase as HandPhase;
+  console.log(`[maybeAdvanceAllInStreet] hand=${hand.id} all players all-in at phase=${phase}, advancing`);
+
+  if (phase === 'river') {
+    await runShowdown(hand.id, tableId, players, phase);
+    return true;
+  }
+
+  const nextPhase = getNextBettingPhase(phase);
+  if (!nextPhase) {
+    await runShowdown(hand.id, tableId, players, phase);
+    return true;
+  }
+
+  await advanceToNextPhase(hand.id, tableId, players, nextPhase);
+
+  // Broadcast STREET_DEALT (what the client actually listens to)
+  if (pusher) {
+    const db = getDb();
+    const [updatedHand] = await db.select().from(hands).where(eq(hands.id, hand.id));
+    const communityCards: string[] = JSON.parse(updatedHand?.communityCards || '[]');
+    pusher.trigger(`table-${tableId}`, 'STREET_DEALT', {
+      eventId: `street-${nextPhase}-${hand.id}`,
+      street: nextPhase,
+      cards: communityCards.map((c: string) => ({ rank: c[0], suit: c[1] })),
+    }).catch((err) => console.error('[maybeAdvanceAllInStreet] Failed to broadcast STREET_DEALT:', err));
+  }
+
+  return true;
 }
 
 async function maybeCompleteShowdown(tableId: string): Promise<boolean> {
@@ -1113,31 +1160,7 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
     console.log(`[submitAction] hand=${hand.id} phase=${hand.phase} seat=${player.seatIndex} action=${normalizedAction} players:`, mappedUpdatedPlayers.map(p => `s${p.seatIndex}:${p.status}:bet${p.currentBet}`).join(', '));
     console.log(`[submitAction] hand=${hand.id} currentBet=${newCurrentBet} pot=${newPot} bettingComplete=${isBettingComplete(updatedHand, mappedUpdatedPlayers)} awardWithoutShowdown=${shouldAwardWithoutShowdown(mappedUpdatedPlayers)}`);
 
-    if (shouldAwardWithoutShowdown(mappedUpdatedPlayers)) {
-      // Award pot to last remaining player
-      const winner = updatedPlayers.find((p) => !INACTIVE_STATUSES.includes(p.status as PlayerStatus));
-      if (winner) {
-        await db
-          .update(tablePlayers)
-          .set({ stack: sql`${tablePlayers.stack} + ${newPot}` })
-          .where(and(eq(tablePlayers.tableId, tableId), eq(tablePlayers.seatIndex, winner.seatIndex)));
-
-        if (pusher) {
-          pusher.trigger(`table-${tableId}`, 'POT_AWARDED', {
-            eventId: `pot-awarded-${hand.id}`,
-            playerId: winner.playerId,
-            seatIndex: winner.seatIndex,
-            amount: newPot,
-            showdown: false,
-          }).catch((err) => console.error('Failed to broadcast POT_AWARDED:', err));
-        }
-      }
-
-      await db.update(hands).set({ phase: 'complete', endedAt: now() }).where(eq(hands.id, hand.id));
-      phaseChanged = true;
-      newPhase = 'complete';
-      isHandComplete = true;
-    } else if (isBettingComplete(updatedHand, mappedUpdatedPlayers)) {
+    if (isBettingComplete(updatedHand, mappedUpdatedPlayers)) {
       const nextPhaseValue = getPhaseAfterBetting(hand.phase as HandPhase, updatedHand, mappedUpdatedPlayers);
       phaseChanged = true;
       newPhase = nextPhaseValue;
@@ -1294,12 +1317,8 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
           await setNextActor(hand.id, tableId, firstActor.seatIndex);
         } else {
           // No one can act - all players are all-in
-          // Auto-advance through streets with delays to build anticipation
-          console.log(`[submitAction] hand=${hand.id} no actor for ${nextPhaseValue}, scheduling all-in street progression`);
-          const [updatedHandForPhase] = await db.select().from(hands).where(eq(hands.id, hand.id));
-          if (updatedHandForPhase) {
-            scheduleAllInStreetProgression(hand.id, tableId, updatedHandForPhase.phase as HandPhase);
-          }
+          // Polling via advanceGameState → maybeAdvanceAllInStreet will advance streets
+          console.log(`[submitAction] hand=${hand.id} no actor for ${nextPhaseValue}, all-in progression handled by polling`);
         }
       }
     } else {

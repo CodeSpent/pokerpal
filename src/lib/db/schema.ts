@@ -319,6 +319,32 @@ export const events = pgTable(
 );
 
 // =============================================================================
+// Range Sets
+// =============================================================================
+
+export const rangeSets = pgTable(
+  'range_sets',
+  {
+    id: text('id').primaryKey(),
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    positions: text('positions').notNull(), // JSON string of Partial<Record<Position, { hands: string[] }>>
+    isDefault: boolean('is_default').notNull().default(false),
+    isShared: boolean('is_shared').notNull().default(false),
+    shareCode: text('share_code'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (table) => [
+    index('idx_range_sets_player').on(table.playerId),
+    uniqueIndex('idx_range_sets_share_code').on(table.shareCode),
+  ]
+);
+
+// =============================================================================
 // Migrations Tracking
 // =============================================================================
 
@@ -361,6 +387,9 @@ export type NewShowdownResult = typeof showdownResults.$inferInsert;
 
 export type Event = typeof events.$inferSelect;
 export type NewEvent = typeof events.$inferInsert;
+
+export type RangeSet = typeof rangeSets.$inferSelect;
+export type NewRangeSet = typeof rangeSets.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

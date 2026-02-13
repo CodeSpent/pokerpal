@@ -144,11 +144,11 @@ export default function ScenariosPage() {
             <Card
               key={feature.title}
               className={cn(
-                "group transition-colors",
+                "group transition-colors flex flex-col",
                 feature.available ? "hover:border-zinc-600" : "opacity-60"
               )}
             >
-              <CardHeader>
+              <CardHeader className="flex-1">
                 <div className="flex items-center gap-3">
                   <div className={cn("p-2 rounded-lg", feature.bgColor)}>
                     <Icon className={cn("w-5 h-5", feature.color)} />

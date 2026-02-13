@@ -1,4 +1,4 @@
-import { Scenario } from "@/types/scenarios";
+import { Scenario, Difficulty, ScenarioCategory } from "@/types/scenarios";
 
 export const QUIZ_SCENARIOS: Scenario[] = [
   // ============ BEGINNER PREFLOP ============
@@ -463,6 +463,28 @@ export const QUIZ_SCENARIOS: Scenario[] = [
     tags: ["multiway", "oop", "pot-control"],
   },
 ];
+
+// Get scenario by ID
+export function getScenarioById(id: string): Scenario | undefined {
+  return QUIZ_SCENARIOS.find((s) => s.id === id);
+}
+
+// Get filtered scenarios by difficulty and categories
+export function getFilteredScenarios(config: {
+  difficulty: Difficulty | "all";
+  categories: ScenarioCategory[];
+}): Scenario[] {
+  let filtered = [...QUIZ_SCENARIOS];
+
+  if (config.difficulty !== "all") {
+    filtered = filtered.filter((s) => s.difficulty === config.difficulty);
+  }
+  if (config.categories.length > 0) {
+    filtered = filtered.filter((s) => config.categories.includes(s.category));
+  }
+
+  return filtered;
+}
 
 // Get scenarios by difficulty
 export function getScenariosByDifficulty(difficulty: string): Scenario[] {

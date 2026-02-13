@@ -11,7 +11,11 @@ interface SyncManagerOptions {
 // Terminal phases where we need to poll for new hand start
 // (serverless setTimeout may not execute, so we poll to trigger advanceGameState)
 // Note: 'tournament-complete' is NOT included - no need to poll when tournament is over
-const TERMINAL_PHASES = ['hand-complete', 'awarding', 'showdown', 'waiting'];
+const TERMINAL_PHASES = ['hand-complete', 'awarding', 'showdown', 'complete', 'waiting'];
+
+// Betting phases where we should poll if there's no current actor
+// (handles all-in street progression via server-side advanceGameState)
+const BETTING_PHASES = ['preflop', 'flop', 'turn', 'river'];
 
 /**
  * Event-driven sync manager
@@ -25,7 +29,7 @@ const TERMINAL_PHASES = ['hand-complete', 'awarding', 'showdown', 'waiting'];
  * validActions now comes via TURN_STARTED events, not from HTTP fetch.
  */
 export function useSyncManager({ tableId, isConnected }: SyncManagerOptions) {
-  const { setTableState, setLoading, setError, setTournamentWinner, phase, tournamentWinner } = useTableStore();
+  const { setTableState, setLoading, setError, setTournamentWinner, phase, tournamentWinner, currentActorSeatIndex } = useTableStore();
   const previouslyConnected = useRef<boolean | null>(null);
 
   // Fetch current state from server
@@ -96,22 +100,25 @@ export function useSyncManager({ tableId, isConnected }: SyncManagerOptions) {
     previouslyConnected.current = isConnected;
   }, [isConnected, refreshState]);
 
-  // Poll when in terminal phase to trigger new hand via server's advanceGameState
+  // Poll when in terminal phase or when stuck (no actor during betting phase)
   // This handles cases where serverless setTimeout doesn't execute
+  const isTerminalPhase = TERMINAL_PHASES.includes(phase);
+  const isStuckAllIn = BETTING_PHASES.includes(phase) && currentActorSeatIndex === null;
+  const shouldPoll = isTerminalPhase || isStuckAllIn;
+
   useEffect(() => {
     // Don't poll if tournament is complete
     if (tournamentWinner || phase === 'tournament-complete') {
-      console.log('[useSyncManager] Tournament complete, stopping poll');
       return;
     }
 
-    if (!TERMINAL_PHASES.includes(phase)) return;
+    if (!shouldPoll) return;
 
-    console.log(`[useSyncManager] In terminal phase "${phase}", starting poll for new hand`);
+    const reason = isStuckAllIn ? `all-in at "${phase}"` : `terminal phase "${phase}"`;
+    console.log(`[useSyncManager] Polling: ${reason}`);
 
-    // Poll every 2 seconds while in terminal phase
+    // Poll every 2 seconds
     const pollInterval = setInterval(() => {
-      console.log(`[useSyncManager] Polling to trigger new hand (phase: ${phase})`);
       refreshState();
     }, 2000);
 
@@ -124,7 +131,7 @@ export function useSyncManager({ tableId, isConnected }: SyncManagerOptions) {
       clearInterval(pollInterval);
       clearTimeout(initialPoll);
     };
-  }, [phase, refreshState, tournamentWinner]);
+  }, [phase, shouldPoll, isStuckAllIn, refreshState, tournamentWinner]);
 
   return { refreshState };
 }

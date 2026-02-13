@@ -50,6 +50,7 @@ export function useTableChannel(tableId: string | null) {
   useChannelEvent(channel, 'SHOWDOWN', createEventHandler('SHOWDOWN'));
   useChannelEvent(channel, 'WINNER', createEventHandler('WINNER'));
   useChannelEvent(channel, 'HAND_COMPLETE', createEventHandler('HAND_COMPLETE'));
+  useChannelEvent(channel, 'TOURNAMENT_COMPLETE', createEventHandler('TOURNAMENT_COMPLETE'));
 
   // Handle private hole cards event
   useChannelEvent(privateChannel, 'HOLE_CARDS_DEALT', (data: { cards: [unknown, unknown] }) => {

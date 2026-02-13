@@ -6,9 +6,9 @@ import {
   CategoryStats,
   ScenarioCategory,
   Difficulty,
-  Scenario,
   INITIAL_STATS,
 } from "@/types/scenarios";
+import { getScenarioById } from "@/data/quiz-scenarios";
 
 interface StatsStore extends UserStats {
   // Actions
@@ -106,10 +106,3 @@ export const useStatsStore = create<StatsStore>()(
   )
 );
 
-// Helper to get scenario by ID (import here to avoid circular deps)
-function getScenarioById(id: string): Scenario | undefined {
-  // Lazy import to avoid circular dependency
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { QUIZ_SCENARIOS } = require("@/data/quiz-scenarios");
-  return QUIZ_SCENARIOS.find((s: Scenario) => s.id === id);
-}

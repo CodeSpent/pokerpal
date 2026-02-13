@@ -126,7 +126,9 @@ export async function POST(
       sidePots: [],
     });
 
-    if (actionResult.phaseChanged && actionResult.newPhase) {
+    // Only broadcast STREET_DEALT for actual betting streets, not terminal phases
+    const BETTING_STREETS = ['preflop', 'flop', 'turn', 'river'];
+    if (actionResult.phaseChanged && actionResult.newPhase && BETTING_STREETS.includes(actionResult.newPhase)) {
       // Get community cards for phase change
       const communityCards = actionResult.hand.communityCards
         ? JSON.parse(actionResult.hand.communityCards).map((c: string) => ({
