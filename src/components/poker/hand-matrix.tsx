@@ -1,14 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { RANKS, getHandAtPosition } from "@/types/poker";
 import { HandCell } from "./hand-cell";
 import { cn } from "@/lib/cn";
 
 interface HandMatrixProps {
   selectedHands: Set<string>;
-  onHandToggle?: (hand: string) => void;
   onHandsChange?: (hands: Set<string>) => void;
   colorMode?: "binary" | "action";
   handActions?: Record<string, "fold" | "call" | "raise">;
@@ -20,7 +19,6 @@ interface HandMatrixProps {
 
 export function HandMatrix({
   selectedHands,
-  onHandToggle,
   onHandsChange,
   colorMode = "binary",
   handActions,
@@ -30,72 +28,70 @@ export function HandMatrix({
   className,
 }: HandMatrixProps) {
   const [hoveredHand, setHoveredHand] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragMode, setDragMode] = useState<"select" | "deselect">("select");
+  const isMouseDownRef = useRef(false);
+  const didDragRef = useRef(false);
+  const mouseDownHandRef = useRef<string | null>(null);
+  const selectedHandsRef = useRef(selectedHands);
+  selectedHandsRef.current = selectedHands;
 
-  const handleMouseDown = useCallback(
+  const handleCellMouseDown = useCallback(
     (hand: string) => {
       if (disabled) return;
-      setIsDragging(true);
-      const isCurrentlySelected = selectedHands.has(hand);
-      setDragMode(isCurrentlySelected ? "deselect" : "select");
+      isMouseDownRef.current = true;
+      didDragRef.current = false;
+      mouseDownHandRef.current = hand;
+    },
+    [disabled]
+  );
 
-      if (onHandToggle) {
-        onHandToggle(hand);
-      } else if (onHandsChange) {
-        const newHands = new Set(selectedHands);
-        if (isCurrentlySelected) {
+  const handleCellMouseEnter = useCallback(
+    (hand: string) => {
+      setHoveredHand(hand);
+
+      if (isMouseDownRef.current && !disabled && onHandsChange) {
+        didDragRef.current = true;
+        const newHands = new Set(selectedHandsRef.current);
+
+        // Select the start cell if it hasn't been selected yet by drag
+        const startHand = mouseDownHandRef.current;
+        if (startHand && !newHands.has(startHand)) {
+          newHands.add(startHand);
+        }
+
+        // Select entered cell
+        if (!newHands.has(hand)) {
+          newHands.add(hand);
+        }
+
+        onHandsChange(newHands);
+      }
+    },
+    [disabled, onHandsChange]
+  );
+
+  // Global mouseup: if no drag occurred, toggle the cell (single click)
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isMouseDownRef.current && !didDragRef.current && mouseDownHandRef.current && onHandsChange) {
+        const hand = mouseDownHandRef.current;
+        const newHands = new Set(selectedHandsRef.current);
+        if (newHands.has(hand)) {
           newHands.delete(hand);
         } else {
           newHands.add(hand);
         }
         onHandsChange(newHands);
       }
-    },
-    [disabled, selectedHands, onHandToggle, onHandsChange]
-  );
-
-  const handleMouseEnter = useCallback(
-    (hand: string) => {
-      setHoveredHand(hand);
-
-      if (isDragging && !disabled) {
-        const isSelected = selectedHands.has(hand);
-        const shouldToggle =
-          (dragMode === "select" && !isSelected) ||
-          (dragMode === "deselect" && isSelected);
-
-        if (shouldToggle) {
-          if (onHandToggle) {
-            onHandToggle(hand);
-          } else if (onHandsChange) {
-            const newHands = new Set(selectedHands);
-            if (dragMode === "select") {
-              newHands.add(hand);
-            } else {
-              newHands.delete(hand);
-            }
-            onHandsChange(newHands);
-          }
-        }
-      }
-    },
-    [isDragging, disabled, selectedHands, dragMode, onHandToggle, onHandsChange]
-  );
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
+      isMouseDownRef.current = false;
+      didDragRef.current = false;
+      mouseDownHandRef.current = null;
+    };
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+    return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
+  }, [onHandsChange]);
 
   const handleMouseLeave = useCallback(() => {
     setHoveredHand(null);
-  }, []);
-
-  // Add global mouseup listener for drag end
-  React.useEffect(() => {
-    const handleGlobalMouseUp = () => setIsDragging(false);
-    window.addEventListener("mouseup", handleGlobalMouseUp);
-    return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
   }, []);
 
   const gapClass = size === "xs" ? "gap-px" : size === "sm" ? "gap-0.5" : size === "md" ? "gap-1" : "gap-1.5";
@@ -103,11 +99,7 @@ export function HandMatrix({
   return (
     <div
       className={cn("select-none", className)}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={() => {
-        handleMouseLeave();
-        setIsDragging(false);
-      }}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Column labels */}
       {showLabels && (
@@ -152,8 +144,8 @@ export function HandMatrix({
                   hand={hand}
                   isSelected={selectedHands.has(hand)}
                   isHovered={hoveredHand === hand}
-                  onClick={() => !isDragging && handleMouseDown(hand)}
-                  onMouseEnter={() => handleMouseEnter(hand)}
+                  onMouseDown={() => handleCellMouseDown(hand)}
+                  onMouseEnter={() => handleCellMouseEnter(hand)}
                   onMouseLeave={handleMouseLeave}
                   disabled={disabled}
                   colorMode={colorMode}

@@ -8,7 +8,7 @@ interface HandCellProps {
   hand: string;
   isSelected: boolean;
   isHovered: boolean;
-  onClick?: () => void;
+  onMouseDown?: () => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
   disabled?: boolean;
@@ -34,7 +34,7 @@ export const HandCell = React.memo(function HandCell({
   hand,
   isSelected,
   isHovered,
-  onClick,
+  onMouseDown,
   onMouseEnter,
   onMouseLeave,
   disabled = false,
@@ -58,7 +58,7 @@ export const HandCell = React.memo(function HandCell({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onMouseDown={onMouseDown}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       disabled={disabled}
@@ -71,7 +71,7 @@ export const HandCell = React.memo(function HandCell({
         suited && !isSelected && "text-blue-400",
         !suited && !pair && !isSelected && "text-zinc-400",
         isSelected && "text-white",
-        disabled && "cursor-default opacity-50",
+        disabled && "cursor-default",
         !disabled && "cursor-pointer hover:ring-1 hover:ring-zinc-600"
       )}
     >
