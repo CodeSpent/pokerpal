@@ -1,37 +1,50 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { useChannel, useChannelEvent } from '@/hooks/usePusher';
 import { useSession } from 'next-auth/react';
-import { Plus, Users, Trophy, Coins, ArrowLeft, RefreshCw, Lock, Gift } from 'lucide-react';
+import { Plus, Users, Trophy, Coins, ArrowLeft, RefreshCw, Lock, Gift, DollarSign } from 'lucide-react';
 import { usePlayerStore } from '@/stores/player-store';
-import type { TournamentSummary } from '@/lib/poker-engine-v2/types';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import type { TournamentSummary, CashGameSummary } from '@/lib/poker-engine-v2/types';
 
 export default function LobbyPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
 
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'cash' ? 'cash' : 'tournaments');
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
+  const [cashGames, setCashGames] = useState<CashGameSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Subscribe to tournaments channel for real-time updates
+  // Subscribe to channels for real-time updates
   const tournamentsChannel = useChannel('tournaments');
+  const cashGamesChannel = useChannel('cash-games');
 
   // Handle new tournament created
   const handleTournamentCreated = useCallback((data: TournamentSummary) => {
     setTournaments((prev) => {
-      if (prev.some((t) => t.id === data.id)) {
-        return prev;
-      }
+      if (prev.some((t) => t.id === data.id)) return prev;
       return [data, ...prev];
     });
   }, []);
 
   useChannelEvent(tournamentsChannel, 'TOURNAMENT_CREATED', handleTournamentCreated);
+
+  // Handle new cash game created
+  const handleCashGameCreated = useCallback((data: CashGameSummary) => {
+    setCashGames((prev) => {
+      if (prev.some((g) => g.id === data.id)) return prev;
+      return [data, ...prev];
+    });
+  }, []);
+
+  useChannelEvent(cashGamesChannel, 'CASH_GAME_CREATED', handleCashGameCreated);
 
   // Daily bonus state
   const { chipBalance, setChipBalance } = usePlayerStore();
@@ -82,8 +95,28 @@ export default function LobbyPage() {
     }
   };
 
+  // Fetch cash games
+  const fetchCashGames = async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch('/api/cash-games');
+      const data = await res.json();
+      setCashGames(data.cashGames || []);
+    } catch (err) {
+      console.error('Failed to fetch cash games:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const refresh = () => {
+    if (activeTab === 'tournaments') fetchTournaments();
+    else fetchCashGames();
+  };
+
   useEffect(() => {
     fetchTournaments();
+    fetchCashGames();
   }, []);
 
   return (
@@ -98,7 +131,7 @@ export default function LobbyPage() {
             <ArrowLeft className="w-5 h-5 text-zinc-400" />
           </Link>
           <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-bold text-white">Tournament Lobby</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Game Lobby</h1>
             <p className="text-zinc-400 text-sm">Join a table or create your own</p>
           </div>
         </div>
@@ -106,7 +139,7 @@ export default function LobbyPage() {
         {/* Actions */}
         <div className="flex gap-3">
           <Link
-            href="/play/create"
+            href={activeTab === 'cash' ? '/play/create?type=cash' : '/play/create'}
             className={cn(
               'flex items-center gap-2 px-4 sm:px-6 py-3 rounded-lg font-bold whitespace-nowrap',
               'bg-emerald-600 text-white hover:bg-emerald-700',
@@ -114,12 +147,14 @@ export default function LobbyPage() {
             )}
           >
             <Plus className="w-5 h-5 shrink-0" />
-            <span className="hidden sm:inline">Create Tournament</span>
+            <span className="hidden sm:inline">
+              {activeTab === 'cash' ? 'Create Cash Game' : 'Create Tournament'}
+            </span>
             <span className="sm:hidden">Create</span>
           </Link>
 
           <button
-            onClick={fetchTournaments}
+            onClick={refresh}
             disabled={isLoading}
             className={cn(
               'flex items-center gap-2 px-4 py-3 rounded-lg whitespace-nowrap',
@@ -180,47 +215,92 @@ export default function LobbyPage() {
         </div>
       )}
 
-      {/* Tournament list */}
+      {/* Tabs */}
       <div className="max-w-6xl mx-auto">
-        {isLoading ? (
-          <div className="text-center py-12">
-            <div className="inline-block w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-            <p className="mt-4 text-zinc-400">Loading tournaments...</p>
-          </div>
-        ) : tournaments.length === 0 ? (
-          <div className="text-center py-12 bg-zinc-900/50 rounded-xl border border-zinc-800">
-            <Trophy className="w-12 h-12 mx-auto text-zinc-600 mb-4" />
-            <h3 className="text-xl font-bold text-white mb-2">
-              No Open Tournaments
-            </h3>
-            <p className="text-zinc-400 mb-6">
-              Be the first to create a tournament!
-            </p>
-            <Link
-              href="/play/create"
-              className={cn(
-                'inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold whitespace-nowrap',
-                'bg-emerald-600 text-white hover:bg-emerald-700',
-                'transition-colors'
-              )}
-            >
-              <Plus className="w-5 h-5 shrink-0" />
-              Create
-            </Link>
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {tournaments.map((tournament) => (
-              <TournamentCard
-                key={tournament.id}
-                tournament={tournament}
-                onRegister={() => {
-                  router.push(`/play/tournament/${tournament.id}`);
-                }}
-              />
-            ))}
-          </div>
-        )}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="mb-6">
+            <TabsTrigger value="tournaments" className="gap-2">
+              <Trophy className="w-4 h-4" />
+              Tournaments
+            </TabsTrigger>
+            <TabsTrigger value="cash" className="gap-2">
+              <DollarSign className="w-4 h-4" />
+              Cash Games
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="tournaments">
+            {isLoading ? (
+              <div className="text-center py-12">
+                <div className="inline-block w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <p className="mt-4 text-zinc-400">Loading tournaments...</p>
+              </div>
+            ) : tournaments.length === 0 ? (
+              <div className="text-center py-12 bg-zinc-900/50 rounded-xl border border-zinc-800">
+                <Trophy className="w-12 h-12 mx-auto text-zinc-600 mb-4" />
+                <h3 className="text-xl font-bold text-white mb-2">No Open Tournaments</h3>
+                <p className="text-zinc-400 mb-6">Be the first to create a tournament!</p>
+                <Link
+                  href="/play/create"
+                  className={cn(
+                    'inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold whitespace-nowrap',
+                    'bg-emerald-600 text-white hover:bg-emerald-700',
+                    'transition-colors'
+                  )}
+                >
+                  <Plus className="w-5 h-5 shrink-0" />
+                  Create
+                </Link>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {tournaments.map((tournament) => (
+                  <TournamentCard
+                    key={tournament.id}
+                    tournament={tournament}
+                    onRegister={() => router.push(`/play/tournament/${tournament.id}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="cash">
+            {isLoading ? (
+              <div className="text-center py-12">
+                <div className="inline-block w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <p className="mt-4 text-zinc-400">Loading cash games...</p>
+              </div>
+            ) : cashGames.length === 0 ? (
+              <div className="text-center py-12 bg-zinc-900/50 rounded-xl border border-zinc-800">
+                <DollarSign className="w-12 h-12 mx-auto text-zinc-600 mb-4" />
+                <h3 className="text-xl font-bold text-white mb-2">No Cash Games</h3>
+                <p className="text-zinc-400 mb-6">Start a cash game table!</p>
+                <Link
+                  href="/play/create?type=cash"
+                  className={cn(
+                    'inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold whitespace-nowrap',
+                    'bg-emerald-600 text-white hover:bg-emerald-700',
+                    'transition-colors'
+                  )}
+                >
+                  <Plus className="w-5 h-5 shrink-0" />
+                  Create
+                </Link>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {cashGames.map((game) => (
+                  <CashGameCard
+                    key={game.id}
+                    game={game}
+                    onJoin={() => router.push(`/play/cash/${game.id}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
@@ -269,7 +349,6 @@ function TournamentCard({
         </span>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div>
           <div className="text-xs text-zinc-500 mb-1">Buy-in</div>
@@ -296,7 +375,6 @@ function TournamentCard({
         </div>
       </div>
 
-      {/* Progress bar */}
       <div className="h-1.5 bg-zinc-800 rounded-full mb-4 overflow-hidden">
         <div
           className="h-full bg-emerald-500 transition-all duration-300"
@@ -304,7 +382,6 @@ function TournamentCard({
         />
       </div>
 
-      {/* Register button */}
       <button
         onClick={onRegister}
         disabled={isFull}
@@ -316,6 +393,89 @@ function TournamentCard({
         )}
       >
         {isFull ? 'Full' : 'Join Tournament'}
+      </button>
+    </motion.div>
+  );
+}
+
+function CashGameCard({
+  game,
+  onJoin,
+}: {
+  game: CashGameSummary;
+  onJoin: () => void;
+}) {
+  const isFull = game.playerCount >= game.maxPlayers;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        'bg-zinc-900 rounded-xl p-6 border border-zinc-800',
+        'hover:border-zinc-700 transition-colors'
+      )}
+    >
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h3 className="text-lg font-bold text-white">{game.name}</h3>
+          <p className="text-sm text-zinc-400">
+            {game.smallBlind}/{game.bigBlind} Blinds
+          </p>
+        </div>
+        <span
+          className={cn(
+            'px-2 py-1 rounded text-xs font-medium',
+            game.status === 'open'
+              ? 'bg-emerald-500/20 text-emerald-400'
+              : game.status === 'running'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'bg-zinc-500/20 text-zinc-400'
+          )}
+        >
+          {game.status}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div>
+          <div className="text-xs text-zinc-500 mb-1">Buy-in Range</div>
+          <div className="flex items-center gap-1 text-white">
+            <Coins className="w-4 h-4 text-amber-400" />
+            <span className="font-mono text-sm">
+              {game.minBuyIn.toLocaleString()}-{game.maxBuyIn.toLocaleString()}
+            </span>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-zinc-500 mb-1">Blinds</div>
+          <div className="flex items-center gap-1 text-white">
+            <DollarSign className="w-4 h-4 text-emerald-400" />
+            <span className="font-mono text-sm">{game.smallBlind}/{game.bigBlind}</span>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-zinc-500 mb-1">Players</div>
+          <div className="flex items-center gap-1 text-white">
+            <Users className="w-4 h-4 text-blue-400" />
+            <span className="font-mono">
+              {game.playerCount} / {game.maxPlayers}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={onJoin}
+        disabled={isFull}
+        className={cn(
+          'w-full py-2 rounded-lg font-medium transition-colors',
+          isFull
+            ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed'
+            : 'bg-emerald-600 text-white hover:bg-emerald-700'
+        )}
+      >
+        {isFull ? 'Full' : 'Join Table'}
       </button>
     </motion.div>
   );

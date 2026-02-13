@@ -101,6 +101,24 @@ export interface TournamentSummary {
 }
 
 // ============================================
+// CASH GAME TYPES
+// ============================================
+
+export type CashGameStatus = 'open' | 'running' | 'closed';
+
+export interface CashGameSummary {
+  id: string;
+  name: string;
+  status: CashGameStatus;
+  maxPlayers: number;
+  playerCount: number;
+  smallBlind: number;
+  bigBlind: number;
+  minBuyIn: number;
+  maxBuyIn: number;
+}
+
+// ============================================
 // TABLE TYPES
 // ============================================
 
@@ -113,7 +131,8 @@ export type TableStatus =
 export interface Table {
   id: string;
   version: number;
-  tournament_id: string;
+  tournament_id: string | null;
+  cash_game_id?: string | null;
   table_number: number;
   max_seats: number;
   dealer_seat: number;
@@ -367,7 +386,8 @@ export interface SidePot {
  */
 export interface TableState {
   id: string;
-  tournamentId: string;
+  tournamentId: string | null;
+  cashGameId?: string | null;
   tableNumber: number;
   maxSeats: 6 | 9;
   status: TableStatus;

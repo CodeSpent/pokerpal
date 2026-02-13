@@ -7,7 +7,7 @@
 
 import Pusher from 'pusher';
 import { getDb } from '@/lib/db';
-import { tableRepo, handRepo, eventRepo, tournamentRepo } from '@/lib/db/repositories';
+import { tableRepo, handRepo, eventRepo, tournamentRepo, cashGameRepo } from '@/lib/db/repositories';
 import { awardTournamentPrizes } from './tournament-service';
 import { generateId, now } from '@/lib/db/transaction';
 import { hands, tablePlayers, tables } from '@/lib/db/schema';
@@ -705,22 +705,26 @@ async function maybeStartNewHand(tableId: string): Promise<{ started: boolean; h
     return { started: false, hand: null };
   }
 
+  const isCashGame = !!table.cashGameId;
+
   // Get players with chips (not eliminated and stack > 0)
-  const activePlayers = players.filter((p) => !['eliminated', 'sitting_out'].includes(p.status) && p.stack > 0);
+  const activePlayers = isCashGame
+    ? players.filter((p) => p.stack > 0 && p.status !== 'sitting_out')
+    : players.filter((p) => !['eliminated', 'sitting_out'].includes(p.status) && p.stack > 0);
   console.log(`[maybeStartNewHand] Active players (stack > 0, not eliminated):`,
     activePlayers.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
 
-  // Tournament winner - only 1 player with chips remaining
-  if (activePlayers.length === 1) {
+  // Tournament winner - only 1 player with chips remaining (skip for cash games)
+  if (!isCashGame && activePlayers.length === 1) {
     const winner = activePlayers[0];
     console.log(`[maybeStartNewHand] Tournament winner detected: ${winner.name}`);
 
     // Mark tournament and table as complete
-    await tournamentRepo.updateTournamentStatus(table.tournamentId, 'complete');
+    await tournamentRepo.updateTournamentStatus(table.tournamentId!, 'complete');
     await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
 
     // Award tournament prizes
-    await awardTournamentPrizes(table.tournamentId);
+    await awardTournamentPrizes(table.tournamentId!);
 
     // Broadcast tournament complete
     if (pusher) {
@@ -827,9 +831,15 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
   const table = await tableRepo.getTable(tableId);
   if (!table) throw new Error('Table not found');
 
-  // Get tournament for timer settings
-  const tournament = await tournamentRepo.getTournament(table.tournamentId);
-  const turnTimerSeconds = tournament?.turnTimerSeconds;
+  // Get timer settings from tournament or cash game
+  let turnTimerSeconds: number | null = null;
+  if (table.cashGameId) {
+    const cashGame = await cashGameRepo.getCashGame(table.cashGameId);
+    turnTimerSeconds = cashGame?.turnTimerSeconds ?? 30;
+  } else if (table.tournamentId) {
+    const tournament = await tournamentRepo.getTournament(table.tournamentId);
+    turnTimerSeconds = tournament?.turnTimerSeconds ?? null;
+  }
 
   // Get active players (must have chips and not be eliminated/sitting out)
   const { players } = await tableRepo.getTableWithPlayers(tableId);
@@ -1220,28 +1230,33 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
 
         // Re-fetch players AFTER pot is awarded to get accurate stack values
         const { players: playersAfterPot, table: refreshedTable } = await tableRepo.getTableWithPlayers(tableId);
+        const isCashGameAwarding = !!refreshedTable?.cashGameId;
 
-        // Mark eliminated players (those with 0 chips)
-        for (const p of playersAfterPot) {
-          if (p.stack === 0 && p.status !== 'eliminated') {
-            await db.update(tablePlayers).set({ status: 'eliminated', eliminatedAt: now() }).where(eq(tablePlayers.id, p.id));
+        // Mark eliminated players (those with 0 chips) — skip for cash games
+        if (!isCashGameAwarding) {
+          for (const p of playersAfterPot) {
+            if (p.stack === 0 && p.status !== 'eliminated') {
+              await db.update(tablePlayers).set({ status: 'eliminated', eliminatedAt: now() }).where(eq(tablePlayers.id, p.id));
+            }
           }
         }
 
         // Re-fetch to get updated statuses after elimination
         const { players: refreshedAfterElim } = await tableRepo.getTableWithPlayers(tableId);
-        const remainingPlayers = refreshedAfterElim.filter((p) => p.stack > 0 && p.status !== 'eliminated');
+        const remainingPlayers = isCashGameAwarding
+          ? refreshedAfterElim.filter((p) => p.stack > 0 && p.status !== 'sitting_out')
+          : refreshedAfterElim.filter((p) => p.stack > 0 && p.status !== 'eliminated');
 
-        // Tournament winner - only one player left
-        if (remainingPlayers.length === 1 && refreshedTable) {
+        // Tournament winner - only one player left (skip for cash games)
+        if (!isCashGameAwarding && remainingPlayers.length === 1 && refreshedTable) {
           const tournamentWinner = remainingPlayers[0];
           console.log(`[submitAction] Tournament winner: ${tournamentWinner.name}`);
 
-          await tournamentRepo.updateTournamentStatus(refreshedTable.tournamentId, 'complete');
+          await tournamentRepo.updateTournamentStatus(refreshedTable.tournamentId!, 'complete');
           await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
 
           // Award tournament prizes
-          await awardTournamentPrizes(refreshedTable.tournamentId);
+          await awardTournamentPrizes(refreshedTable.tournamentId!);
 
           if (pusher) {
             pusher.trigger(`table-${tableId}`, 'TOURNAMENT_COMPLETE', {
@@ -1387,10 +1402,16 @@ async function setNextActor(handId: string, tableId: string, seatIndex: number):
 
   console.log(`[setNextActor] hand=${handId} → seat ${seatIndex}`);
 
-  // Get tournament timer
+  // Get timer from tournament or cash game
   const [table] = await db.select().from(tables).where(eq(tables.id, tableId));
-  const tournament = table ? await tournamentRepo.getTournament(table.tournamentId) : null;
-  const turnTimerSeconds = tournament?.turnTimerSeconds;
+  let turnTimerSeconds: number | null | undefined = null;
+  if (table?.cashGameId) {
+    const cashGame = await cashGameRepo.getCashGame(table.cashGameId);
+    turnTimerSeconds = cashGame?.turnTimerSeconds ?? 30;
+  } else if (table?.tournamentId) {
+    const tournament = await tournamentRepo.getTournament(table.tournamentId);
+    turnTimerSeconds = tournament?.turnTimerSeconds;
+  }
   const deadline = turnTimerSeconds !== null && turnTimerSeconds !== undefined
     ? now() + turnTimerSeconds * 1000
     : null;
@@ -1669,37 +1690,43 @@ async function completeHand(
   }
 
   // Check for eliminated players and start next hand
-  const { players } = await tableRepo.getTableWithPlayers(tableId);
+  const { players, table } = await tableRepo.getTableWithPlayers(tableId);
+  const isCashGame = !!table?.cashGameId;
   console.log(`[completeHand] Players after fetching:`,
     players.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
 
-  for (const player of players) {
-    if (player.stack === 0 && player.status !== 'eliminated') {
-      console.log(`[completeHand] Marking player ${player.name} (seat ${player.seatIndex}) as eliminated (stack=0)`);
-      await db.update(tablePlayers).set({ status: 'eliminated', eliminatedAt: now() }).where(eq(tablePlayers.id, player.id));
+  // In cash games, players with 0 chips are NOT eliminated — they can rebuy
+  if (!isCashGame) {
+    for (const player of players) {
+      if (player.stack === 0 && player.status !== 'eliminated') {
+        console.log(`[completeHand] Marking player ${player.name} (seat ${player.seatIndex}) as eliminated (stack=0)`);
+        await db.update(tablePlayers).set({ status: 'eliminated', eliminatedAt: now() }).where(eq(tablePlayers.id, player.id));
+      }
     }
   }
 
   // Re-fetch players after elimination updates
-  const { players: refreshedPlayers, table } = await tableRepo.getTableWithPlayers(tableId);
-  const remainingPlayers = refreshedPlayers.filter((p) => p.stack > 0 && p.status !== 'eliminated');
+  const { players: refreshedPlayers } = await tableRepo.getTableWithPlayers(tableId);
+  const remainingPlayers = isCashGame
+    ? refreshedPlayers.filter((p) => p.stack > 0 && p.status !== 'sitting_out')
+    : refreshedPlayers.filter((p) => p.stack > 0 && p.status !== 'eliminated');
   console.log(`[completeHand] Remaining players after elimination:`,
     remainingPlayers.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
   console.log(`[completeHand] Table status: ${table?.status}`);
 
-  // Tournament winner - only one player left with chips
-  if (remainingPlayers.length === 1 && table) {
+  // Tournament winner - only one player left with chips (skip for cash games)
+  if (!isCashGame && remainingPlayers.length === 1 && table) {
     const winner = remainingPlayers[0];
     console.log(`[completeHand] Tournament winner: ${winner.name} (seat ${winner.seatIndex})`);
 
     // Mark tournament as complete
-    await tournamentRepo.updateTournamentStatus(table.tournamentId, 'complete');
+    await tournamentRepo.updateTournamentStatus(table.tournamentId!, 'complete');
 
     // Update table status
     await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
 
     // Award tournament prizes
-    await awardTournamentPrizes(table.tournamentId);
+    await awardTournamentPrizes(table.tournamentId!);
 
     // Broadcast tournament complete
     if (pusher) {
@@ -1717,9 +1744,9 @@ async function completeHand(
   }
 
   // No players left (edge case - shouldn't happen)
-  if (remainingPlayers.length === 0 && table) {
+  if (!isCashGame && remainingPlayers.length === 0 && table) {
     console.warn('[completeHand] No remaining players - ending tournament');
-    await tournamentRepo.updateTournamentStatus(table.tournamentId, 'complete');
+    await tournamentRepo.updateTournamentStatus(table.tournamentId!, 'complete');
     await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
     return;
   }

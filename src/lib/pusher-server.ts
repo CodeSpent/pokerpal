@@ -34,6 +34,8 @@ export const channels = {
   tournament: (id: string) => `tournament-${id}`,
   table: (id: string) => `table-${id}`,
   privatePlayer: (id: string) => `private-player-${id}`,
+  cashGames: 'cash-games',
+  cashGame: (id: string) => `cash-game-${id}`,
 };
 
 // Event types for tournaments
@@ -45,4 +47,12 @@ export const tournamentEvents = {
   PLAYER_READY: 'PLAYER_READY',
   COUNTDOWN_CANCELLED: 'COUNTDOWN_CANCELLED',
   GAME_STARTING: 'GAME_STARTING',
+} as const;
+
+// Event types for cash games
+export const cashGameEvents = {
+  CASH_GAME_CREATED: 'CASH_GAME_CREATED',
+  PLAYER_JOINED: 'PLAYER_JOINED',
+  PLAYER_LEFT: 'PLAYER_LEFT',
+  CASH_GAME_CLOSED: 'CASH_GAME_CLOSED',
 } as const;

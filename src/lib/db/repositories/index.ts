@@ -11,3 +11,4 @@ export * as handRepo from './hand';
 export * as eventRepo from './event';
 export * as rangeSetRepo from './rangeSet';
 export * as chipTxRepo from './chipTransaction';
+export * as cashGameRepo from './cashGame';

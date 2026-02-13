@@ -12,9 +12,10 @@ import { generateId, now } from '../transaction';
 
 export interface RecordTransactionParams {
   playerId: string;
-  type: 'initial_grant' | 'buy_in' | 'payout' | 'daily_bonus' | 'refund';
+  type: 'initial_grant' | 'buy_in' | 'payout' | 'daily_bonus' | 'refund' | 'cash_buy_in' | 'cash_rebuy' | 'cash_out';
   amount: number; // signed: negative for deductions
   tournamentId?: string;
+  cashGameId?: string;
   description: string;
 }
 
@@ -24,7 +25,7 @@ export interface RecordTransactionParams {
  * Rejects if the resulting balance would be negative.
  */
 export async function recordTransaction(params: RecordTransactionParams): Promise<ChipTransaction> {
-  const { playerId, type, amount, tournamentId, description } = params;
+  const { playerId, type, amount, tournamentId, cashGameId, description } = params;
   const db = getDb();
 
   return await db.transaction(async (tx) => {
@@ -57,6 +58,7 @@ export async function recordTransaction(params: RecordTransactionParams): Promis
       amount,
       balanceAfter: newBalance,
       tournamentId: tournamentId ?? null,
+      cashGameId: cashGameId ?? null,
       description,
       createdAt: now(),
     };
@@ -133,5 +135,17 @@ export async function getTournamentTransactions(tournamentId: string): Promise<C
     .select()
     .from(chipTransactions)
     .where(eq(chipTransactions.tournamentId, tournamentId))
+    .orderBy(desc(chipTransactions.createdAt));
+}
+
+/**
+ * Get all transactions for a specific cash game.
+ */
+export async function getCashGameTransactions(cashGameId: string): Promise<ChipTransaction[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(chipTransactions)
+    .where(eq(chipTransactions.cashGameId, cashGameId))
     .orderBy(desc(chipTransactions.createdAt));
 }

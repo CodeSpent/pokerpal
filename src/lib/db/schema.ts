@@ -173,6 +173,33 @@ export const earlyStartVotes = pgTable(
 );
 
 // =============================================================================
+// Cash Games
+// =============================================================================
+
+export const cashGames = pgTable(
+  'cash_games',
+  {
+    id: text('id').primaryKey(),
+    version: integer('version').notNull().default(1),
+    status: text('status').notNull().default('open'), // 'open' | 'running' | 'closed'
+    name: text('name').notNull(),
+    creatorId: text('creator_id')
+      .notNull()
+      .references(() => players.id),
+    maxPlayers: integer('max_players').notNull().default(6),
+    tableSize: integer('table_size').notNull().default(6),
+    smallBlind: integer('small_blind').notNull(),
+    bigBlind: integer('big_blind').notNull(),
+    minBuyIn: integer('min_buy_in').notNull(),
+    maxBuyIn: integer('max_buy_in').notNull(),
+    turnTimerSeconds: integer('turn_timer_seconds').default(30),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    closedAt: bigint('closed_at', { mode: 'number' }),
+  },
+  (table) => [index('idx_cash_games_status').on(table.status)]
+);
+
+// =============================================================================
 // Chip Transactions (Ledger)
 // =============================================================================
 
@@ -183,10 +210,11 @@ export const chipTransactions = pgTable(
     playerId: text('player_id')
       .notNull()
       .references(() => players.id),
-    type: text('type').notNull(), // 'initial_grant' | 'buy_in' | 'payout' | 'daily_bonus' | 'refund'
+    type: text('type').notNull(), // 'initial_grant' | 'buy_in' | 'payout' | 'daily_bonus' | 'refund' | 'cash_buy_in' | 'cash_rebuy' | 'cash_out'
     amount: integer('amount').notNull(), // signed: negative for buy_in, positive for payout/bonus
     balanceAfter: integer('balance_after').notNull(),
     tournamentId: text('tournament_id').references(() => tournaments.id),
+    cashGameId: text('cash_game_id').references(() => cashGames.id),
     description: text('description').notNull(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
@@ -194,6 +222,7 @@ export const chipTransactions = pgTable(
     index('idx_chip_tx_player').on(table.playerId),
     index('idx_chip_tx_player_created').on(table.playerId, table.createdAt),
     index('idx_chip_tx_tournament').on(table.tournamentId),
+    index('idx_chip_tx_cash_game').on(table.cashGameId),
   ]
 );
 
@@ -207,8 +236,9 @@ export const tables = pgTable(
     id: text('id').primaryKey(),
     version: integer('version').notNull().default(1),
     tournamentId: text('tournament_id')
-      .notNull()
       .references(() => tournaments.id, { onDelete: 'cascade' }),
+    cashGameId: text('cash_game_id')
+      .references(() => cashGames.id, { onDelete: 'cascade' }),
     tableNumber: integer('table_number').notNull(),
     maxSeats: integer('max_seats').notNull().default(9),
     dealerSeat: integer('dealer_seat').notNull().default(0),
@@ -218,7 +248,10 @@ export const tables = pgTable(
     status: text('status').notNull().default('waiting'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
-  (table) => [index('idx_tables_tournament').on(table.tournamentId)]
+  (table) => [
+    index('idx_tables_tournament').on(table.tournamentId),
+    index('idx_tables_cash_game').on(table.cashGameId),
+  ]
 );
 
 export const tablePlayers = pgTable(
@@ -419,6 +452,9 @@ export type NewEvent = typeof events.$inferInsert;
 
 export type RangeSet = typeof rangeSets.$inferSelect;
 export type NewRangeSet = typeof rangeSets.$inferInsert;
+
+export type CashGame = typeof cashGames.$inferSelect;
+export type NewCashGame = typeof cashGames.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
