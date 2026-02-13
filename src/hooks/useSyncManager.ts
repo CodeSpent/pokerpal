@@ -29,7 +29,7 @@ const BETTING_PHASES = ['preflop', 'flop', 'turn', 'river'];
  * validActions now comes via TURN_STARTED events, not from HTTP fetch.
  */
 export function useSyncManager({ tableId, isConnected }: SyncManagerOptions) {
-  const { setTableState, setLoading, setError, setTournamentWinner, phase, tournamentWinner, currentActorSeatIndex } = useTableStore();
+  const { setTableState, setLoading, setError, setTournamentWinner, phase, tournamentWinner, currentActorSeatIndex, heroSeatIndex, heroHoleCards } = useTableStore();
   const previouslyConnected = useRef<boolean | null>(null);
 
   // Fetch current state from server
@@ -100,11 +100,12 @@ export function useSyncManager({ tableId, isConnected }: SyncManagerOptions) {
     previouslyConnected.current = isConnected;
   }, [isConnected, refreshState]);
 
-  // Poll when in terminal phase or when stuck (no actor during betting phase)
-  // This handles cases where serverless setTimeout doesn't execute
+  // Poll when in terminal phase, when stuck (no actor during betting phase),
+  // or when hero's turn but cards are missing (Pusher dropped HOLE_CARDS_DEALT)
   const isTerminalPhase = TERMINAL_PHASES.includes(phase);
   const isStuckAllIn = BETTING_PHASES.includes(phase) && currentActorSeatIndex === null;
-  const shouldPoll = isTerminalPhase || isStuckAllIn;
+  const isHeroTurnNoCards = BETTING_PHASES.includes(phase) && currentActorSeatIndex !== null && currentActorSeatIndex === heroSeatIndex && heroHoleCards === null;
+  const shouldPoll = isTerminalPhase || isStuckAllIn || isHeroTurnNoCards;
 
   useEffect(() => {
     // Don't poll if tournament is complete
@@ -114,7 +115,7 @@ export function useSyncManager({ tableId, isConnected }: SyncManagerOptions) {
 
     if (!shouldPoll) return;
 
-    const reason = isStuckAllIn ? `all-in at "${phase}"` : `terminal phase "${phase}"`;
+    const reason = isHeroTurnNoCards ? `hero turn, no cards at "${phase}"` : isStuckAllIn ? `all-in at "${phase}"` : `terminal phase "${phase}"`;
     console.log(`[useSyncManager] Polling: ${reason}`);
 
     // Poll every 2 seconds
@@ -131,7 +132,7 @@ export function useSyncManager({ tableId, isConnected }: SyncManagerOptions) {
       clearInterval(pollInterval);
       clearTimeout(initialPoll);
     };
-  }, [phase, shouldPoll, isStuckAllIn, refreshState, tournamentWinner]);
+  }, [phase, shouldPoll, isStuckAllIn, isHeroTurnNoCards, refreshState, tournamentWinner]);
 
   return { refreshState };
 }

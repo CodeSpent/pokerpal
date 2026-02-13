@@ -958,6 +958,7 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
     for (const { playerId, cards } of dealtCards) {
       pusher.trigger(`private-player-${playerId}`, 'HOLE_CARDS_DEALT', {
         eventId: `hole-cards-${handId}-${playerId}`,
+        handNumber,
         cards, // Cards in { rank, suit } format
       }).catch((err) => {
         console.error(`[startNewHand] Failed to send hole cards to player ${playerId}:`, err);

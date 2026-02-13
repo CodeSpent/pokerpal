@@ -133,6 +133,7 @@ interface TableStoreState {
   // Hero state
   heroSeatIndex: number | null;
   heroHoleCards: [Card, Card] | null;
+  heroCardsForHand: number | null;
 
   // Blinds
   smallBlind: number;
@@ -235,6 +236,7 @@ const INITIAL_STATE = {
   lastAction: null,
   heroSeatIndex: null,
   heroHoleCards: null,
+  heroCardsForHand: null,
   smallBlind: 0,
   bigBlind: 0,
   ante: 0,
@@ -336,8 +338,19 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
   setValidActions: (validActions) =>
     set({ validActions }),
 
-  setHeroHoleCards: (cards) =>
-    set({ heroHoleCards: cards }),
+  setHeroHoleCards: (cards) => {
+    const state = get();
+    set({
+      heroHoleCards: cards,
+      seats: state.heroSeatIndex !== null
+        ? state.seats.map(s =>
+            s.index === state.heroSeatIndex && s.player
+              ? { ...s, player: { ...s.player, holeCards: cards } }
+              : s
+          )
+        : state.seats,
+    });
+  },
 
   applyEvent: (event) => {
     const state = get();
@@ -440,6 +453,10 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
           };
         });
 
+        // Preserve heroHoleCards if they already arrived for THIS hand
+        // (HOLE_CARDS_DEALT on private channel can arrive before HAND_STARTED on table channel)
+        const preserveCards = state.heroCardsForHand === handEvent.handNumber;
+
         // Apply new hand state - server controls timing
         set({
           handNumber: handEvent.handNumber,
@@ -448,22 +465,41 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
           pot: 0,
           sidePots: [],
           currentBet: handEvent.blinds?.bb ?? 0,
-          heroHoleCards: null,
+          heroHoleCards: preserveCards ? state.heroHoleCards : null,
           dealerSeatIndex: handEvent.dealerSeatIndex ?? handEvent.dealerSeat ?? 0,
           smallBlindSeatIndex: handEvent.smallBlindSeatIndex ?? handEvent.smallBlindSeat ?? 0,
           bigBlindSeatIndex: handEvent.bigBlindSeatIndex ?? handEvent.bigBlindSeat ?? 0,
           currentActorSeatIndex: handEvent.firstActorSeatIndex ?? handEvent.firstActorSeat ?? null,
           showdownResult: null, // Clear showdown result for new hand
           validActions: null, // Clear validActions until TURN_STARTED arrives
-          seats: resetSeats,
+          seats: preserveCards && state.heroSeatIndex !== null
+            ? resetSeats.map(s =>
+                s.index === state.heroSeatIndex && s.player
+                  ? { ...s, player: { ...s.player, holeCards: state.heroHoleCards! } }
+                  : s
+              )
+            : resetSeats,
           shownCards: {}, // Clear voluntarily shown cards for new hand
         });
         break;
       }
 
-      case 'HOLE_CARDS_DEALT':
-        set({ heroHoleCards: event.cards });
+      case 'HOLE_CARDS_DEALT': {
+        const holeEvent = event as { cards: [Card, Card]; handNumber?: number };
+        const forHand = holeEvent.handNumber ?? state.handNumber;
+        set({
+          heroHoleCards: holeEvent.cards,
+          heroCardsForHand: forHand,
+          seats: state.heroSeatIndex !== null
+            ? state.seats.map(s =>
+                s.index === state.heroSeatIndex && s.player
+                  ? { ...s, player: { ...s.player, holeCards: holeEvent.cards } }
+                  : s
+              )
+            : state.seats,
+        });
         break;
+      }
 
       case 'ACTION':
         set({

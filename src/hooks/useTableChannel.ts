@@ -11,7 +11,7 @@ import type { TableEvent } from '@/lib/poker-engine-v2/types';
  */
 export function useTableChannel(tableId: string | null) {
   const { isConnected } = usePusher();
-  const { applyEvent, setConnected, setHeroHoleCards } = useTableStore();
+  const { applyEvent, setConnected } = useTableStore();
   const { data: session } = useSession();
 
   // Subscribe to public table channel
@@ -52,9 +52,9 @@ export function useTableChannel(tableId: string | null) {
   useChannelEvent(channel, 'HAND_COMPLETE', createEventHandler('HAND_COMPLETE'));
   useChannelEvent(channel, 'TOURNAMENT_COMPLETE', createEventHandler('TOURNAMENT_COMPLETE'));
 
-  // Handle private hole cards event
-  useChannelEvent(privateChannel, 'HOLE_CARDS_DEALT', (data: { cards: [unknown, unknown] }) => {
-    setHeroHoleCards(data.cards as [unknown, unknown] as never);
+  // Handle private hole cards event — route through applyEvent for deduplication and hand tracking
+  useChannelEvent(privateChannel, 'HOLE_CARDS_DEALT', (data: { cards: [unknown, unknown]; handNumber?: number; eventId?: string }) => {
+    applyEvent({ type: 'HOLE_CARDS_DEALT', cards: data.cards, handNumber: data.handNumber, eventId: data.eventId } as TableEvent);
   });
 
   return { channel, isConnected };
