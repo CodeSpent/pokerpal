@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import LobbyContent from "./lobby-content";
 
 export default function Page() {
-  return <LobbyContent />;
+  return (
+    <Suspense>
+      <LobbyContent />
+    </Suspense>
+  );
 }
