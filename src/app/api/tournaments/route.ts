@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
-import { tournamentRepo, eventRepo } from '@/lib/db/repositories';
+import { tournamentRepo, eventRepo, playerRepo, chipTxRepo } from '@/lib/db/repositories';
 import { getPusher, channels, tournamentEvents } from '@/lib/pusher-server';
 
 /**
@@ -18,7 +18,7 @@ export async function GET() {
         status: t.status,
         registeredCount: await tournamentRepo.getRegistrationCount(t.id),
         maxPlayers: t.maxPlayers,
-        buyIn: 100,
+        buyIn: t.startingChips,
         startingChips: t.startingChips,
         createdAt: t.createdAt,
         isPasswordProtected: false,
@@ -94,6 +94,22 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check balance for buy-in (buy-in = starting chips)
+    const player = await playerRepo.getPlayer(playerId);
+    if (!player) {
+      return NextResponse.json(
+        { error: 'Player not found' },
+        { status: 404 }
+      );
+    }
+
+    if (player.chipBalance < startingChips) {
+      return NextResponse.json(
+        { error: `Insufficient chips: need ${startingChips}, have ${player.chipBalance}` },
+        { status: 400 }
+      );
+    }
+
     // Create tournament
     const tournament = await tournamentRepo.createTournament({
       name: name.trim(),
@@ -113,7 +129,14 @@ export async function POST(request: Request) {
       endedAt: null,
     });
 
-    // Auto-register creator
+    // Deduct buy-in and auto-register creator
+    await chipTxRepo.recordTransaction({
+      playerId,
+      type: 'buy_in',
+      amount: -tournament.startingChips,
+      tournamentId: tournament.id,
+      description: `Buy-in for ${tournament.name}`,
+    });
     await tournamentRepo.registerPlayer(tournament.id, playerId);
 
     // Emit event

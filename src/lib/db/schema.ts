@@ -92,7 +92,7 @@ export const players = pgTable(
     country: text('country'),
     state: text('state'),
     // Stats (persisted for authenticated users)
-    chipBalance: integer('chip_balance').notNull().default(10000),
+    chipBalance: integer('chip_balance').notNull().default(20000),
     totalGamesPlayed: integer('total_games_played').notNull().default(0),
     totalWinnings: integer('total_winnings').notNull().default(0),
     tournamentsWon: integer('tournaments_won').notNull().default(0),
@@ -173,6 +173,31 @@ export const earlyStartVotes = pgTable(
 );
 
 // =============================================================================
+// Chip Transactions (Ledger)
+// =============================================================================
+
+export const chipTransactions = pgTable(
+  'chip_transactions',
+  {
+    id: text('id').primaryKey(),
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    type: text('type').notNull(), // 'initial_grant' | 'buy_in' | 'payout' | 'daily_bonus' | 'refund'
+    amount: integer('amount').notNull(), // signed: negative for buy_in, positive for payout/bonus
+    balanceAfter: integer('balance_after').notNull(),
+    tournamentId: text('tournament_id').references(() => tournaments.id),
+    description: text('description').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (table) => [
+    index('idx_chip_tx_player').on(table.playerId),
+    index('idx_chip_tx_player_created').on(table.playerId, table.createdAt),
+    index('idx_chip_tx_tournament').on(table.tournamentId),
+  ]
+);
+
+// =============================================================================
 // Tables
 // =============================================================================
 
@@ -212,6 +237,7 @@ export const tablePlayers = pgTable(
     currentBet: integer('current_bet').notNull().default(0),
     holeCard1: text('hole_card_1'),
     holeCard2: text('hole_card_2'),
+    eliminatedAt: bigint('eliminated_at', { mode: 'number' }),
   },
   (table) => [
     unique('uniq_table_seat').on(table.tableId, table.seatIndex),
@@ -360,6 +386,9 @@ export const migrations = pgTable('migrations', {
 
 export type Player = typeof players.$inferSelect;
 export type NewPlayer = typeof players.$inferInsert;
+
+export type ChipTransaction = typeof chipTransactions.$inferSelect;
+export type NewChipTransaction = typeof chipTransactions.$inferInsert;
 
 export type Tournament = typeof tournaments.$inferSelect;
 export type NewTournament = typeof tournaments.$inferInsert;

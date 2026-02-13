@@ -6,11 +6,14 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { useChannel, useChannelEvent } from '@/hooks/usePusher';
-import { Plus, Users, Trophy, Coins, ArrowLeft, RefreshCw, Lock } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { Plus, Users, Trophy, Coins, ArrowLeft, RefreshCw, Lock, Gift } from 'lucide-react';
+import { usePlayerStore } from '@/stores/player-store';
 import type { TournamentSummary } from '@/lib/poker-engine-v2/types';
 
 export default function LobbyPage() {
   const router = useRouter();
+  const { data: session } = useSession();
 
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -29,6 +32,41 @@ export default function LobbyPage() {
   }, []);
 
   useChannelEvent(tournamentsChannel, 'TOURNAMENT_CREATED', handleTournamentCreated);
+
+  // Daily bonus state
+  const { chipBalance, setChipBalance } = usePlayerStore();
+  const [bonusEligible, setBonusEligible] = useState(false);
+  const [bonusClaiming, setBonusClaiming] = useState(false);
+  const [bonusClaimed, setBonusClaimed] = useState(false);
+  const hasPlayerId = !!session?.user?.playerId;
+
+  useEffect(() => {
+    if (!hasPlayerId) return;
+    fetch('/api/player/daily-bonus')
+      .then((res) => res.json())
+      .then((data) => {
+        setBonusEligible(data.eligible);
+        if (data.currentBalance != null) setChipBalance(data.currentBalance);
+      })
+      .catch(() => {});
+  }, [hasPlayerId, setChipBalance]);
+
+  const claimDailyBonus = async () => {
+    setBonusClaiming(true);
+    try {
+      const res = await fetch('/api/player/daily-bonus', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setChipBalance(data.newBalance);
+        setBonusEligible(false);
+        setBonusClaimed(true);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setBonusClaiming(false);
+    }
+  };
 
   // Fetch tournaments
   const fetchTournaments = async () => {
@@ -95,6 +133,52 @@ export default function LobbyPage() {
           </button>
         </div>
       </div>
+
+      {/* Balance & Daily Bonus */}
+      {hasPlayerId && (
+        <div className="max-w-6xl mx-auto mb-6">
+          <div className={cn(
+            'flex items-center justify-between px-4 py-3 rounded-lg border',
+            bonusEligible
+              ? 'bg-amber-500/10 border-amber-500/30'
+              : bonusClaimed
+              ? 'bg-emerald-500/10 border-emerald-500/30'
+              : 'bg-zinc-900/50 border-zinc-800'
+          )}>
+            <div className="flex items-center gap-3">
+              <Coins className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div>
+                <span className="text-white font-mono font-bold">
+                  {chipBalance.toLocaleString()}
+                </span>
+                <span className="text-zinc-400 text-sm ml-2">chips</span>
+              </div>
+            </div>
+
+            {bonusClaimed && (
+              <span className="text-emerald-400 text-sm font-medium">
+                +5,000 claimed!
+              </span>
+            )}
+
+            {bonusEligible && (
+              <button
+                onClick={claimDailyBonus}
+                disabled={bonusClaiming}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold',
+                  'bg-amber-500 text-black hover:bg-amber-400',
+                  'transition-colors',
+                  bonusClaiming && 'opacity-50 cursor-not-allowed'
+                )}
+              >
+                <Gift className="w-4 h-4" />
+                {bonusClaiming ? 'Claiming...' : 'Claim 5,000'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tournament list */}
       <div className="max-w-6xl mx-auto">
@@ -186,7 +270,14 @@ function TournamentCard({
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div>
+          <div className="text-xs text-zinc-500 mb-1">Buy-in</div>
+          <div className="flex items-center gap-1 text-white">
+            <Coins className="w-4 h-4 text-amber-400" />
+            <span className="font-mono">{tournament.startingChips.toLocaleString()}</span>
+          </div>
+        </div>
         <div>
           <div className="text-xs text-zinc-500 mb-1">Starting Stack</div>
           <div className="flex items-center gap-1 text-white">

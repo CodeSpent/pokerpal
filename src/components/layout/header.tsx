@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { BookOpen, Grid3X3, Dices, Calculator, Menu, X, Gamepad2, LogIn, LogOut } from "lucide-react";
-import { useState } from "react";
+import { BookOpen, Grid3X3, Dices, Calculator, Menu, X, Gamepad2, LogIn, LogOut, Coins } from "lucide-react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
+import { usePlayerStore } from "@/stores/player-store";
 
 const navigation = [
   { name: "Play", href: "/play", icon: Gamepad2, highlight: true },
@@ -20,6 +21,20 @@ export function Header() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { chipBalance, setChipBalance } = usePlayerStore();
+
+  useEffect(() => {
+    if (session?.user?.playerId) {
+      fetch('/api/player/me')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.player?.chipBalance != null) {
+            setChipBalance(data.player.chipBalance);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [session?.user?.playerId, setChipBalance]);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-zinc-800 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -64,6 +79,12 @@ export function Header() {
           <div className="hidden md:flex items-center gap-2">
             {session?.user ? (
               <>
+                {session.user.playerId && (
+                  <span className="flex items-center gap-1 text-sm text-emerald-400 font-mono mr-2">
+                    <Coins className="w-4 h-4" />
+                    {chipBalance.toLocaleString()}
+                  </span>
+                )}
                 <span className="text-sm text-zinc-300">
                   {session.user.displayName || session.user.name || session.user.email}
                 </span>
@@ -130,16 +151,24 @@ export function Header() {
             {/* Auth (mobile) */}
             <div className="border-t border-zinc-800 pt-2 mt-2">
               {session?.user ? (
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    signOut({ callbackUrl: '/' });
-                  }}
-                  className="flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium text-foreground-muted hover:text-foreground hover:bg-zinc-800/50 w-full"
-                >
-                  <LogOut className="w-5 h-5" />
-                  Sign Out ({session.user.displayName || session.user.email})
-                </button>
+                <>
+                  {session.user.playerId && (
+                    <div className="flex items-center gap-3 px-4 py-2 text-sm font-mono text-emerald-400">
+                      <Coins className="w-5 h-5" />
+                      {chipBalance.toLocaleString()} chips
+                    </div>
+                  )}
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      signOut({ callbackUrl: '/' });
+                    }}
+                    className="flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium text-foreground-muted hover:text-foreground hover:bg-zinc-800/50 w-full"
+                  >
+                    <LogOut className="w-5 h-5" />
+                    Sign Out ({session.user.displayName || session.user.email})
+                  </button>
+                </>
               ) : (
                 <Link
                   href="/auth/signin"

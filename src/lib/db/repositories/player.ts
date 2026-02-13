@@ -6,7 +6,7 @@
 
 import { eq, sql } from 'drizzle-orm';
 import { getDb } from '../index';
-import { players, type Player, type NewPlayer } from '../schema';
+import { players, chipTransactions, type Player, type NewPlayer } from '../schema';
 import { generateId, now } from '../transaction';
 
 /**
@@ -115,5 +115,18 @@ export async function createPlayerForUser(userId: string, profile: CreatePlayerP
   };
 
   await db.insert(players).values(newPlayer);
+
+  // Record initial grant in the ledger (player was created with default chipBalance of 20000)
+  await db.insert(chipTransactions).values({
+    id: generateId(),
+    playerId: newPlayer.id,
+    type: 'initial_grant',
+    amount: 20000,
+    balanceAfter: 20000,
+    tournamentId: null,
+    description: 'Welcome bonus',
+    createdAt: now(),
+  });
+
   return newPlayer as Player;
 }

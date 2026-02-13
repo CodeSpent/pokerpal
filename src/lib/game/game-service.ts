@@ -8,6 +8,7 @@
 import Pusher from 'pusher';
 import { getDb } from '@/lib/db';
 import { tableRepo, handRepo, eventRepo, tournamentRepo } from '@/lib/db/repositories';
+import { awardTournamentPrizes } from './tournament-service';
 import { generateId, now } from '@/lib/db/transaction';
 import { hands, tablePlayers, tables } from '@/lib/db/schema';
 import type { Hand, TablePlayer, Table, Event } from '@/lib/db/schema';
@@ -718,6 +719,9 @@ async function maybeStartNewHand(tableId: string): Promise<{ started: boolean; h
     await tournamentRepo.updateTournamentStatus(table.tournamentId, 'complete');
     await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
 
+    // Award tournament prizes
+    await awardTournamentPrizes(table.tournamentId);
+
     // Broadcast tournament complete
     if (pusher) {
       pusher.trigger(`table-${tableId}`, 'TOURNAMENT_COMPLETE', {
@@ -1220,7 +1224,7 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
         // Mark eliminated players (those with 0 chips)
         for (const p of playersAfterPot) {
           if (p.stack === 0 && p.status !== 'eliminated') {
-            await db.update(tablePlayers).set({ status: 'eliminated' }).where(eq(tablePlayers.id, p.id));
+            await db.update(tablePlayers).set({ status: 'eliminated', eliminatedAt: now() }).where(eq(tablePlayers.id, p.id));
           }
         }
 
@@ -1235,6 +1239,9 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
 
           await tournamentRepo.updateTournamentStatus(refreshedTable.tournamentId, 'complete');
           await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
+
+          // Award tournament prizes
+          await awardTournamentPrizes(refreshedTable.tournamentId);
 
           if (pusher) {
             pusher.trigger(`table-${tableId}`, 'TOURNAMENT_COMPLETE', {
@@ -1669,7 +1676,7 @@ async function completeHand(
   for (const player of players) {
     if (player.stack === 0 && player.status !== 'eliminated') {
       console.log(`[completeHand] Marking player ${player.name} (seat ${player.seatIndex}) as eliminated (stack=0)`);
-      await db.update(tablePlayers).set({ status: 'eliminated' }).where(eq(tablePlayers.id, player.id));
+      await db.update(tablePlayers).set({ status: 'eliminated', eliminatedAt: now() }).where(eq(tablePlayers.id, player.id));
     }
   }
 
@@ -1690,6 +1697,9 @@ async function completeHand(
 
     // Update table status
     await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, tableId));
+
+    // Award tournament prizes
+    await awardTournamentPrizes(table.tournamentId);
 
     // Broadcast tournament complete
     if (pusher) {

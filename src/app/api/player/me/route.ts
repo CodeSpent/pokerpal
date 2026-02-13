@@ -31,6 +31,7 @@ export async function GET() {
         avatar: player.avatar,
         country: player.country,
         state: player.state,
+        chipBalance: player.chipBalance,
         createdAt: player.createdAt,
       },
     });

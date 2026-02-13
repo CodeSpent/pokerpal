@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedPlayer } from '@/lib/auth/get-player';
+import { playerRepo } from '@/lib/db/repositories';
 
 /**
  * POST /api/player
@@ -16,12 +17,14 @@ export async function POST() {
       );
     }
 
+    const player = await playerRepo.getPlayer(authPlayer.playerId);
+
     return NextResponse.json({
       player: {
         id: authPlayer.playerId,
         displayName: authPlayer.displayName,
-        chipBalance: 10000,
-        createdAt: Date.now(),
+        chipBalance: player?.chipBalance ?? 20000,
+        createdAt: player?.createdAt ?? Date.now(),
       },
     });
   } catch (error) {
