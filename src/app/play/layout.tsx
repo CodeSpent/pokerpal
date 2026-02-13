@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Play Poker - Letsplay.poker',
+  title: {
+    default: 'Play Poker',
+    template: '%s | LetsPlay Poker',
+  },
   description: 'Join a tournament and play real-time multiplayer poker',
 };
 
