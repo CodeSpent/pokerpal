@@ -1,4 +1,4 @@
-import { COUNTRIES } from '@/lib/data/countries';
+import { COUNTRIES, getSubdivisions, hasSubdivisions, getSubdivisionLabel } from '@/lib/data/countries';
 
 const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_]{2,19}$/;
 
@@ -18,10 +18,16 @@ export function validateCountry(value: string): string | null {
   return null;
 }
 
-export function validateState(value: string): string | null {
-  if (!value) return 'State/province is required';
-  if (value.trim().length < 1 || value.trim().length > 100) {
-    return 'State/province must be 1-100 characters';
+export function validateState(value: string, countryCode: string): string | null {
+  if (!hasSubdivisions(countryCode)) return null;
+
+  const label = getSubdivisionLabel(countryCode);
+  if (!value) return `${label} is required`;
+
+  const subdivisions = getSubdivisions(countryCode);
+  if (!subdivisions.some((s) => s.name === value)) {
+    return `Invalid ${label.toLowerCase()}`;
   }
+
   return null;
 }

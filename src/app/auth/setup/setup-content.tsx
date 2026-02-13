@@ -1,13 +1,13 @@
 'use client';
 
-import { Suspense, useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { AtSign, Globe, MapPin, Check, X, ChevronDown } from 'lucide-react';
 import * as Select from '@radix-ui/react-select';
-import { COUNTRIES, STATES } from '@/lib/data/countries';
+import { COUNTRIES, getSubdivisions, getSubdivisionLabel } from '@/lib/data/countries';
 import {
   validateUsername,
   validateCountry,
@@ -38,8 +38,12 @@ function SetupContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const hasStateDropdown = country in STATES;
-  const stateList = hasStateDropdown ? STATES[country] : null;
+  const subdivisions = useMemo(
+    () => (country ? getSubdivisions(country) : []),
+    [country]
+  );
+  const showSubdivisionField = subdivisions.length > 0;
+  const subdivisionLabel = country ? getSubdivisionLabel(country) : 'Region';
 
   // Reset state when country changes
   useEffect(() => {
@@ -89,15 +93,14 @@ function SetupContent() {
   const isFormValid =
     usernameStatus === 'available' &&
     !validateCountry(country) &&
-    !validateState(state);
+    !validateState(state, country);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Final validation
     const errors: Record<string, string | null> = {
       country: validateCountry(country),
-      state: validateState(state),
+      state: validateState(state, country),
     };
     setFieldErrors(errors);
 
@@ -112,7 +115,11 @@ function SetupContent() {
       const res = await fetch('/api/auth/setup-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, country, state: state.trim() }),
+        body: JSON.stringify({
+          username,
+          country,
+          state: showSubdivisionField ? state.trim() : '',
+        }),
       });
 
       const data = await res.json();
@@ -256,12 +263,12 @@ function SetupContent() {
               )}
             </div>
 
-            {/* State/Province */}
-            <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">State / Province</label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 z-10 pointer-events-none" />
-                {stateList ? (
+            {/* Subdivision (State/Province/Prefecture/etc.) */}
+            {showSubdivisionField && (
+              <div>
+                <label className="block text-sm font-medium text-zinc-400 mb-1">{subdivisionLabel}</label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 z-10 pointer-events-none" />
                   <Select.Root
                     value={state}
                     onValueChange={(val) => {
@@ -270,7 +277,7 @@ function SetupContent() {
                     }}
                   >
                     <Select.Trigger className={selectTriggerClasses(!!fieldErrors.state)}>
-                      <Select.Value placeholder="Select a state/province" />
+                      <Select.Value placeholder={`Select a ${subdivisionLabel.toLowerCase()}`} />
                       <Select.Icon className="absolute right-3 top-1/2 -translate-y-1/2">
                         <ChevronDown className="w-4 h-4 text-zinc-500" />
                       </Select.Icon>
@@ -285,7 +292,7 @@ function SetupContent() {
                           <ChevronDown className="w-4 h-4 rotate-180" />
                         </Select.ScrollUpButton>
                         <Select.Viewport className="p-1 max-h-60">
-                          {stateList.map((s) => (
+                          {subdivisions.map((s) => (
                             <Select.Item
                               key={s.code}
                               value={s.name}
@@ -304,24 +311,12 @@ function SetupContent() {
                       </Select.Content>
                     </Select.Portal>
                   </Select.Root>
-                ) : (
-                  <input
-                    type="text"
-                    value={state}
-                    onChange={(e) => {
-                      setState(e.target.value);
-                      setFieldErrors((prev) => ({ ...prev, state: null }));
-                    }}
-                    placeholder="Enter your state/province"
-                    maxLength={100}
-                    className={inputClasses(!!fieldErrors.state)}
-                  />
+                </div>
+                {fieldErrors.state && (
+                  <p className="mt-1 text-sm text-red-400">{fieldErrors.state}</p>
                 )}
               </div>
-              {fieldErrors.state && (
-                <p className="mt-1 text-sm text-red-400">{fieldErrors.state}</p>
-              )}
-            </div>
+            )}
 
             {submitError && (
               <p className="text-sm text-red-400">{submitError}</p>

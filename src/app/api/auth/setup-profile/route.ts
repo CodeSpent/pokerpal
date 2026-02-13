@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     if (usernameErr) errors.username = usernameErr;
     const countryErr = validateCountry(country);
     if (countryErr) errors.country = countryErr;
-    const stateErr = validateState(state);
+    const stateErr = validateState(state ?? '', country);
     if (stateErr) errors.state = stateErr;
 
     if (Object.keys(errors).length > 0) {
