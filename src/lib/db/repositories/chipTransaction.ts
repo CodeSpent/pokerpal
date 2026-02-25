@@ -12,10 +12,11 @@ import { generateId, now } from '../transaction';
 
 export interface RecordTransactionParams {
   playerId: string;
-  type: 'initial_grant' | 'buy_in' | 'payout' | 'daily_bonus' | 'refund' | 'cash_buy_in' | 'cash_rebuy' | 'cash_out';
+  type: 'initial_grant' | 'buy_in' | 'payout' | 'daily_bonus' | 'refund' | 'cash_buy_in' | 'cash_rebuy' | 'cash_out' | 'flex_buy_in' | 'flex_rebuy' | 'flex_cash_out';
   amount: number; // signed: negative for deductions
   tournamentId?: string;
   cashGameId?: string;
+  flexGameId?: string;
   description: string;
 }
 
@@ -25,7 +26,7 @@ export interface RecordTransactionParams {
  * Rejects if the resulting balance would be negative.
  */
 export async function recordTransaction(params: RecordTransactionParams): Promise<ChipTransaction> {
-  const { playerId, type, amount, tournamentId, cashGameId, description } = params;
+  const { playerId, type, amount, tournamentId, cashGameId, flexGameId, description } = params;
   const db = getDb();
 
   return await db.transaction(async (tx) => {
@@ -59,6 +60,7 @@ export async function recordTransaction(params: RecordTransactionParams): Promis
       balanceAfter: newBalance,
       tournamentId: tournamentId ?? null,
       cashGameId: cashGameId ?? null,
+      flexGameId: flexGameId ?? null,
       description,
       createdAt: now(),
     };

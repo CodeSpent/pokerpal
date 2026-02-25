@@ -28,6 +28,12 @@ const TURN_TIMERS = [
   { value: null, label: '\u221E', description: 'Unlimited' },
 ];
 
+const FLEX_TURN_TIMERS = [
+  { value: 12, label: '12h', description: 'Fast' },
+  { value: 24, label: '24h', description: 'Standard' },
+  { value: 48, label: '48h', description: 'Relaxed' },
+];
+
 const BLIND_PRESETS = [
   { sb: 10, bb: 20, label: '10/20' },
   { sb: 25, bb: 50, label: '25/50' },
@@ -38,9 +44,12 @@ export default function CreateGamePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [gameType, setGameType] = useState<'tournament' | 'cash'>(
-    searchParams.get('type') === 'cash' ? 'cash' : 'tournament'
-  );
+  const [gameType, setGameType] = useState<'tournament' | 'cash' | 'flex'>(() => {
+    const type = searchParams.get('type');
+    if (type === 'cash') return 'cash';
+    if (type === 'flex') return 'flex';
+    return 'tournament';
+  });
 
   // Shared fields
   const [name, setName] = useState('');
@@ -48,6 +57,9 @@ export default function CreateGamePage() {
   const [turnTimerSeconds, setTurnTimerSeconds] = useState<number | null>(30);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Flex game fields
+  const [turnTimerHours, setTurnTimerHours] = useState(24);
 
   // Tournament fields
   const [startingChips, setStartingChips] = useState(3000);
@@ -72,7 +84,8 @@ export default function CreateGamePage() {
     e.preventDefault();
 
     if (!name.trim()) {
-      setError(`${gameType === 'cash' ? 'Game' : 'Tournament'} name is required`);
+      const label = gameType === 'cash' ? 'Game' : gameType === 'flex' ? 'Game' : 'Tournament';
+      setError(`${label} name is required`);
       return;
     }
 
@@ -80,7 +93,30 @@ export default function CreateGamePage() {
     setError(null);
 
     try {
-      if (gameType === 'cash') {
+      if (gameType === 'flex') {
+        const blinds = BLIND_PRESETS[selectedBlinds];
+        const res = await fetch('/api/flex-games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: name.trim(),
+            maxPlayers,
+            tableSize: 6,
+            smallBlind: blinds.sb,
+            bigBlind: blinds.bb,
+            minBuyIn,
+            maxBuyIn,
+            turnTimerHours,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.flexGame) {
+          router.push(`/play/flex/${data.flexGame.id}`);
+        } else {
+          setError(data.error || 'Failed to create flex game');
+        }
+      } else if (gameType === 'cash') {
         const blinds = BLIND_PRESETS[selectedBlinds];
         const res = await fetch('/api/cash-games', {
           method: 'POST',
@@ -125,7 +161,8 @@ export default function CreateGamePage() {
         }
       }
     } catch {
-      setError(`Failed to create ${gameType === 'cash' ? 'cash game' : 'tournament'}`);
+      const label = gameType === 'cash' ? 'cash game' : gameType === 'flex' ? 'flex game' : 'tournament';
+      setError(`Failed to create ${label}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -144,10 +181,10 @@ export default function CreateGamePage() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-white">
-              {gameType === 'cash' ? 'Create Cash Game' : 'Create Tournament'}
+              {gameType === 'cash' ? 'Create Cash Game' : gameType === 'flex' ? 'Create Flex Game' : 'Create Tournament'}
             </h1>
             <p className="text-zinc-400">
-              {gameType === 'cash' ? 'Set up a cash game table' : 'Set up a new Sit & Go'}
+              {gameType === 'cash' ? 'Set up a cash game table' : gameType === 'flex' ? 'Async turn-based poker' : 'Set up a new Sit & Go'}
             </p>
           </div>
         </div>
@@ -164,7 +201,7 @@ export default function CreateGamePage() {
             <label className="block text-sm font-medium text-zinc-300 mb-2">
               Game Type
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setGameType('tournament')}
@@ -191,19 +228,32 @@ export default function CreateGamePage() {
                 <div className="text-lg font-bold">Cash Game</div>
                 <div className="text-xs text-zinc-400">Fixed blinds, rebuy</div>
               </button>
+              <button
+                type="button"
+                onClick={() => setGameType('flex')}
+                className={cn(
+                  'flex flex-col items-center p-3 rounded-lg border transition-all',
+                  gameType === 'flex'
+                    ? 'bg-purple-600/20 border-purple-500 text-white'
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-600'
+                )}
+              >
+                <div className="text-lg font-bold">Flex</div>
+                <div className="text-xs text-zinc-400">Async, your pace</div>
+              </button>
             </div>
           </div>
 
           {/* Name */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-zinc-300 mb-2">
-              {gameType === 'cash' ? 'Table Name' : 'Tournament Name'}
+              {gameType === 'cash' ? 'Table Name' : gameType === 'flex' ? 'Game Name' : 'Tournament Name'}
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={gameType === 'cash' ? 'Friday Night Cash' : 'Friday Night Poker'}
+              placeholder={gameType === 'cash' ? 'Friday Night Cash' : gameType === 'flex' ? 'Slow Roll Sunday' : 'Friday Night Poker'}
               maxLength={50}
               className={cn(
                 'w-full px-4 py-3 rounded-lg bg-zinc-800 border',
@@ -218,7 +268,7 @@ export default function CreateGamePage() {
           <div className="mb-6">
             <label className="block text-sm font-medium text-zinc-300 mb-2">
               <Users className="inline-block w-4 h-4 mr-1" />
-              {gameType === 'cash' ? 'Max Players' : 'Players Needed'}
+              {gameType === 'tournament' ? 'Players Needed' : 'Max Players'}
             </label>
             <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
               {PLAYER_COUNTS.map((count) => (
@@ -268,8 +318,8 @@ export default function CreateGamePage() {
             </div>
           )}
 
-          {/* Cash Game: Blinds */}
-          {gameType === 'cash' && (
+          {/* Cash/Flex Game: Blinds */}
+          {(gameType === 'cash' || gameType === 'flex') && (
             <>
               <div className="mb-6">
                 <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -340,31 +390,58 @@ export default function CreateGamePage() {
             </>
           )}
 
-          {/* Turn timer */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-zinc-300 mb-2">
-              <Timer className="inline-block w-4 h-4 mr-1" />
-              Turn Timer
-            </label>
-            <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
-              {TURN_TIMERS.map((timer) => (
-                <button
-                  key={timer.value ?? 'unlimited'}
-                  type="button"
-                  onClick={() => setTurnTimerSeconds(timer.value)}
-                  className={cn(
-                    'flex flex-col items-center p-3 sm:p-4 rounded-lg border transition-all',
-                    turnTimerSeconds === timer.value
-                      ? 'bg-emerald-600/20 border-emerald-500 text-white'
-                      : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-600'
-                  )}
-                >
-                  <div className="text-lg sm:text-xl font-bold font-mono whitespace-nowrap">{timer.label}</div>
-                  <div className="text-xs sm:text-sm text-zinc-400 whitespace-nowrap">{timer.description}</div>
-                </button>
-              ))}
+          {/* Turn timer (standard for tournament/cash, hours for flex) */}
+          {gameType === 'flex' ? (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-zinc-300 mb-2">
+                <Timer className="inline-block w-4 h-4 mr-1" />
+                Turn Timer
+              </label>
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
+                {FLEX_TURN_TIMERS.map((timer) => (
+                  <button
+                    key={timer.value}
+                    type="button"
+                    onClick={() => setTurnTimerHours(timer.value)}
+                    className={cn(
+                      'flex flex-col items-center p-3 sm:p-4 rounded-lg border transition-all',
+                      turnTimerHours === timer.value
+                        ? 'bg-purple-600/20 border-purple-500 text-white'
+                        : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-600'
+                    )}
+                  >
+                    <div className="text-lg sm:text-xl font-bold font-mono whitespace-nowrap">{timer.label}</div>
+                    <div className="text-xs sm:text-sm text-zinc-400 whitespace-nowrap">{timer.description}</div>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-zinc-300 mb-2">
+                <Timer className="inline-block w-4 h-4 mr-1" />
+                Turn Timer
+              </label>
+              <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
+                {TURN_TIMERS.map((timer) => (
+                  <button
+                    key={timer.value ?? 'unlimited'}
+                    type="button"
+                    onClick={() => setTurnTimerSeconds(timer.value)}
+                    className={cn(
+                      'flex flex-col items-center p-3 sm:p-4 rounded-lg border transition-all',
+                      turnTimerSeconds === timer.value
+                        ? 'bg-emerald-600/20 border-emerald-500 text-white'
+                        : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-600'
+                    )}
+                  >
+                    <div className="text-lg sm:text-xl font-bold font-mono whitespace-nowrap">{timer.label}</div>
+                    <div className="text-xs sm:text-sm text-zinc-400 whitespace-nowrap">{timer.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Tournament: Password */}
           {gameType === 'tournament' && (
@@ -437,7 +514,12 @@ export default function CreateGamePage() {
           )}
 
           {/* Info */}
-          <div className="mb-6 p-4 rounded-lg bg-zinc-800/50 border border-zinc-700">
+          <div className={cn(
+            'mb-6 p-4 rounded-lg border',
+            gameType === 'flex'
+              ? 'bg-purple-500/10 border-purple-500/20'
+              : 'bg-zinc-800/50 border-zinc-700'
+          )}>
             {gameType === 'tournament' ? (
               <>
                 <div className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
@@ -449,6 +531,11 @@ export default function CreateGamePage() {
                   {maxPlayers >= 3 ? ' Top 2 players win prizes.' : ''}
                 </div>
               </>
+            ) : gameType === 'flex' ? (
+              <div className="text-sm text-purple-300">
+                Flex game — take turns at your own pace. Fixed blinds ({BLIND_PRESETS[selectedBlinds].label}),
+                rebuy anytime. Players have {turnTimerHours} hours per turn. Game expires after 14 days of inactivity.
+              </div>
             ) : (
               <div className="text-sm text-zinc-500">
                 Fixed blinds ({BLIND_PRESETS[selectedBlinds].label}). Players can join anytime,
@@ -478,6 +565,8 @@ export default function CreateGamePage() {
               ? 'Creating...'
               : gameType === 'cash'
               ? 'Create Cash Game'
+              : gameType === 'flex'
+              ? 'Create Flex Game'
               : 'Create Tournament'}
           </button>
         </motion.form>

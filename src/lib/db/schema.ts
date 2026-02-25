@@ -173,6 +173,36 @@ export const earlyStartVotes = pgTable(
 );
 
 // =============================================================================
+// Flex Games (Async Turn-Based)
+// =============================================================================
+
+export const flexGames = pgTable(
+  'flex_games',
+  {
+    id: text('id').primaryKey(),
+    version: integer('version').notNull().default(1),
+    status: text('status').notNull().default('open'), // 'open' | 'running' | 'closed' | 'expired'
+    name: text('name').notNull(),
+    creatorId: text('creator_id')
+      .notNull()
+      .references(() => players.id),
+    maxPlayers: integer('max_players').notNull().default(6),
+    tableSize: integer('table_size').notNull().default(6),
+    smallBlind: integer('small_blind').notNull(),
+    bigBlind: integer('big_blind').notNull(),
+    minBuyIn: integer('min_buy_in').notNull(),
+    maxBuyIn: integer('max_buy_in').notNull(),
+    turnTimerHours: integer('turn_timer_hours').notNull().default(24),
+    turnTimerSeconds: integer('turn_timer_seconds').notNull(), // turnTimerHours * 3600
+    expiresAfterDays: integer('expires_after_days').notNull().default(14),
+    lastActivityAt: bigint('last_activity_at', { mode: 'number' }).notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    closedAt: bigint('closed_at', { mode: 'number' }),
+  },
+  (table) => [index('idx_flex_games_status').on(table.status)]
+);
+
+// =============================================================================
 // Cash Games
 // =============================================================================
 
@@ -215,6 +245,7 @@ export const chipTransactions = pgTable(
     balanceAfter: integer('balance_after').notNull(),
     tournamentId: text('tournament_id').references(() => tournaments.id),
     cashGameId: text('cash_game_id').references(() => cashGames.id),
+    flexGameId: text('flex_game_id').references(() => flexGames.id),
     description: text('description').notNull(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
@@ -223,6 +254,7 @@ export const chipTransactions = pgTable(
     index('idx_chip_tx_player_created').on(table.playerId, table.createdAt),
     index('idx_chip_tx_tournament').on(table.tournamentId),
     index('idx_chip_tx_cash_game').on(table.cashGameId),
+    index('idx_chip_tx_flex_game').on(table.flexGameId),
   ]
 );
 
@@ -239,6 +271,8 @@ export const tables = pgTable(
       .references(() => tournaments.id, { onDelete: 'cascade' }),
     cashGameId: text('cash_game_id')
       .references(() => cashGames.id, { onDelete: 'cascade' }),
+    flexGameId: text('flex_game_id')
+      .references(() => flexGames.id, { onDelete: 'cascade' }),
     tableNumber: integer('table_number').notNull(),
     maxSeats: integer('max_seats').notNull().default(9),
     dealerSeat: integer('dealer_seat').notNull().default(0),
@@ -251,6 +285,7 @@ export const tables = pgTable(
   (table) => [
     index('idx_tables_tournament').on(table.tournamentId),
     index('idx_tables_cash_game').on(table.cashGameId),
+    index('idx_tables_flex_game').on(table.flexGameId),
   ]
 );
 
@@ -455,6 +490,9 @@ export type NewRangeSet = typeof rangeSets.$inferInsert;
 
 export type CashGame = typeof cashGames.$inferSelect;
 export type NewCashGame = typeof cashGames.$inferInsert;
+
+export type FlexGame = typeof flexGames.$inferSelect;
+export type NewFlexGame = typeof flexGames.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

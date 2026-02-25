@@ -12,3 +12,4 @@ export * as eventRepo from './event';
 export * as rangeSetRepo from './rangeSet';
 export * as chipTxRepo from './chipTransaction';
 export * as cashGameRepo from './cashGame';
+export * as flexGameRepo from './flexGame';

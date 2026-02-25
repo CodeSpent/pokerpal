@@ -7,24 +7,32 @@ import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { useChannel, useChannelEvent } from '@/hooks/usePusher';
 import { useSession } from 'next-auth/react';
-import { Plus, Users, Trophy, Coins, ArrowLeft, RefreshCw, Lock, Gift, DollarSign } from 'lucide-react';
+import { Plus, Users, Trophy, Coins, ArrowLeft, RefreshCw, Lock, Gift, DollarSign, Clock, Zap } from 'lucide-react';
 import { usePlayerStore } from '@/stores/player-store';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import type { TournamentSummary, CashGameSummary } from '@/lib/poker-engine-v2/types';
+import type { TournamentSummary, CashGameSummary, FlexGameSummary } from '@/lib/poker-engine-v2/types';
 
 export default function LobbyPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session } = useSession();
 
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'cash' ? 'cash' : 'tournaments');
+  const [activeTab, setActiveTab] = useState(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'cash') return 'cash';
+    if (tab === 'flex') return 'flex';
+    return 'tournaments';
+  });
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [cashGames, setCashGames] = useState<CashGameSummary[]>([]);
+  const [flexGames, setFlexGames] = useState<FlexGameSummary[]>([]);
+  const [myTurnGameIds, setMyTurnGameIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Subscribe to channels for real-time updates
   const tournamentsChannel = useChannel('tournaments');
   const cashGamesChannel = useChannel('cash-games');
+  const flexGamesChannel = useChannel('flex-games');
 
   // Handle new tournament created
   const handleTournamentCreated = useCallback((data: TournamentSummary) => {
@@ -45,6 +53,16 @@ export default function LobbyPage() {
   }, []);
 
   useChannelEvent(cashGamesChannel, 'CASH_GAME_CREATED', handleCashGameCreated);
+
+  // Handle new flex game created
+  const handleFlexGameCreated = useCallback((data: FlexGameSummary) => {
+    setFlexGames((prev) => {
+      if (prev.some((g) => g.id === data.id)) return prev;
+      return [data, ...prev];
+    });
+  }, []);
+
+  useChannelEvent(flexGamesChannel, 'FLEX_GAME_CREATED', handleFlexGameCreated);
 
   // Daily bonus state
   const { chipBalance, setChipBalance } = usePlayerStore();
@@ -109,14 +127,35 @@ export default function LobbyPage() {
     }
   };
 
+  // Fetch flex games and my-turns
+  const fetchFlexGames = async () => {
+    try {
+      setIsLoading(true);
+      const [gamesRes, turnsRes] = await Promise.all([
+        fetch('/api/flex-games'),
+        fetch('/api/flex-games/my-turns'),
+      ]);
+      const gamesData = await gamesRes.json();
+      const turnsData = await turnsRes.json();
+      setFlexGames(gamesData.flexGames || []);
+      setMyTurnGameIds(turnsData.myTurnGameIds || []);
+    } catch (err) {
+      console.error('Failed to fetch flex games:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const refresh = () => {
     if (activeTab === 'tournaments') fetchTournaments();
-    else fetchCashGames();
+    else if (activeTab === 'cash') fetchCashGames();
+    else fetchFlexGames();
   };
 
   useEffect(() => {
     fetchTournaments();
     fetchCashGames();
+    fetchFlexGames();
   }, []);
 
   return (
@@ -139,16 +178,18 @@ export default function LobbyPage() {
         {/* Actions */}
         <div className="flex gap-3">
           <Link
-            href={activeTab === 'cash' ? '/play/create?type=cash' : '/play/create'}
+            href={activeTab === 'cash' ? '/play/create?type=cash' : activeTab === 'flex' ? '/play/create?type=flex' : '/play/create'}
             className={cn(
               'flex items-center gap-2 px-4 sm:px-6 py-3 rounded-lg font-bold whitespace-nowrap',
-              'bg-emerald-600 text-white hover:bg-emerald-700',
+              activeTab === 'flex'
+                ? 'bg-purple-600 text-white hover:bg-purple-700'
+                : 'bg-emerald-600 text-white hover:bg-emerald-700',
               'transition-colors'
             )}
           >
             <Plus className="w-5 h-5 shrink-0" />
             <span className="hidden sm:inline">
-              {activeTab === 'cash' ? 'Create Cash Game' : 'Create Tournament'}
+              {activeTab === 'cash' ? 'Create Cash Game' : activeTab === 'flex' ? 'Create Flex Game' : 'Create Tournament'}
             </span>
             <span className="sm:hidden">Create</span>
           </Link>
@@ -227,6 +268,10 @@ export default function LobbyPage() {
               <DollarSign className="w-4 h-4" />
               Cash Games
             </TabsTrigger>
+            <TabsTrigger value="flex" className="gap-2">
+              <Zap className="w-4 h-4" />
+              Flex
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="tournaments">
@@ -295,6 +340,43 @@ export default function LobbyPage() {
                     key={game.id}
                     game={game}
                     onJoin={() => router.push(`/play/cash/${game.id}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="flex">
+            {isLoading ? (
+              <div className="text-center py-12">
+                <div className="inline-block w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                <p className="mt-4 text-zinc-400">Loading flex games...</p>
+              </div>
+            ) : flexGames.length === 0 ? (
+              <div className="text-center py-12 bg-zinc-900/50 rounded-xl border border-zinc-800">
+                <Zap className="w-12 h-12 mx-auto text-zinc-600 mb-4" />
+                <h3 className="text-xl font-bold text-white mb-2">No Flex Games</h3>
+                <p className="text-zinc-400 mb-6">Start an async game — play at your own pace!</p>
+                <Link
+                  href="/play/create?type=flex"
+                  className={cn(
+                    'inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold whitespace-nowrap',
+                    'bg-purple-600 text-white hover:bg-purple-700',
+                    'transition-colors'
+                  )}
+                >
+                  <Plus className="w-5 h-5 shrink-0" />
+                  Create
+                </Link>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {flexGames.map((game) => (
+                  <FlexGameCard
+                    key={game.id}
+                    game={game}
+                    isYourTurn={myTurnGameIds.includes(game.id)}
+                    onJoin={() => router.push(`/play/flex/${game.id}`)}
                   />
                 ))}
               </div>
@@ -476,6 +558,110 @@ function CashGameCard({
         )}
       >
         {isFull ? 'Full' : 'Join Table'}
+      </button>
+    </motion.div>
+  );
+}
+
+function FlexGameCard({
+  game,
+  isYourTurn,
+  onJoin,
+}: {
+  game: FlexGameSummary;
+  isYourTurn: boolean;
+  onJoin: () => void;
+}) {
+  const isFull = game.playerCount >= game.maxPlayers;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        'bg-zinc-900 rounded-xl p-6 border',
+        isYourTurn
+          ? 'border-purple-500/50 ring-1 ring-purple-500/30'
+          : 'border-zinc-800 hover:border-zinc-700',
+        'transition-colors'
+      )}
+    >
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            {game.name}
+            {isYourTurn && (
+              <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400 animate-pulse">
+                Your Turn!
+              </span>
+            )}
+          </h3>
+          <p className="text-sm text-zinc-400">
+            {game.smallBlind}/{game.bigBlind} Blinds
+          </p>
+        </div>
+        <span
+          className={cn(
+            'px-2 py-1 rounded text-xs font-medium',
+            game.status === 'open'
+              ? 'bg-purple-500/20 text-purple-400'
+              : game.status === 'running'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'bg-zinc-500/20 text-zinc-400'
+          )}
+        >
+          {game.status}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-4 gap-3 mb-4">
+        <div>
+          <div className="text-xs text-zinc-500 mb-1">Buy-in</div>
+          <div className="flex items-center gap-1 text-white">
+            <Coins className="w-4 h-4 text-amber-400" />
+            <span className="font-mono text-sm">
+              {game.minBuyIn.toLocaleString()}
+            </span>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-zinc-500 mb-1">Blinds</div>
+          <div className="flex items-center gap-1 text-white">
+            <DollarSign className="w-4 h-4 text-emerald-400" />
+            <span className="font-mono text-sm">{game.smallBlind}/{game.bigBlind}</span>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-zinc-500 mb-1">Timer</div>
+          <div className="flex items-center gap-1 text-white">
+            <Clock className="w-4 h-4 text-purple-400" />
+            <span className="font-mono text-sm">{game.turnTimerHours}h</span>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-zinc-500 mb-1">Players</div>
+          <div className="flex items-center gap-1 text-white">
+            <Users className="w-4 h-4 text-blue-400" />
+            <span className="font-mono">
+              {game.playerCount} / {game.maxPlayers}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={onJoin}
+        disabled={isFull}
+        className={cn(
+          'w-full py-2 rounded-lg font-medium transition-colors',
+          isFull
+            ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed'
+            : isYourTurn
+            ? 'bg-purple-600 text-white hover:bg-purple-700'
+            : 'bg-emerald-600 text-white hover:bg-emerald-700'
+        )}
+      >
+        {isFull ? 'Full' : isYourTurn ? 'Play Your Turn' : 'Join Game'}
       </button>
     </motion.div>
   );

@@ -36,6 +36,8 @@ export const channels = {
   privatePlayer: (id: string) => `private-player-${id}`,
   cashGames: 'cash-games',
   cashGame: (id: string) => `cash-game-${id}`,
+  flexGames: 'flex-games',
+  flexGame: (id: string) => `flex-game-${id}`,
 };
 
 // Event types for tournaments
@@ -55,4 +57,13 @@ export const cashGameEvents = {
   PLAYER_JOINED: 'PLAYER_JOINED',
   PLAYER_LEFT: 'PLAYER_LEFT',
   CASH_GAME_CLOSED: 'CASH_GAME_CLOSED',
+} as const;
+
+// Event types for flex games
+export const flexGameEvents = {
+  FLEX_GAME_CREATED: 'FLEX_GAME_CREATED',
+  PLAYER_JOINED: 'PLAYER_JOINED',
+  PLAYER_LEFT: 'PLAYER_LEFT',
+  FLEX_GAME_CLOSED: 'FLEX_GAME_CLOSED',
+  YOUR_TURN: 'YOUR_TURN',
 } as const;

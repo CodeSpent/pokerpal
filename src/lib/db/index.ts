@@ -2,10 +2,11 @@
  * Database Connection
  *
  * Uses Neon Serverless Postgres for both local and production.
+ * Uses the WebSocket driver (neon-serverless) for transaction support.
  */
 
-import { drizzle } from 'drizzle-orm/neon-http';
-import { neon } from '@neondatabase/serverless';
+import { drizzle } from 'drizzle-orm/neon-serverless';
+import { Pool } from '@neondatabase/serverless';
 import * as schema from './schema';
 
 // Re-export schema for convenience
@@ -20,7 +21,7 @@ let _db: Database | null = null;
 /**
  * Get the database connection
  *
- * Uses Neon HTTP driver which works in all environments.
+ * Uses Neon WebSocket driver which supports transactions.
  */
 export function getDb(): Database {
   if (!_db) {
@@ -28,9 +29,9 @@ export function getDb(): Database {
     if (!connectionString) {
       throw new Error('POSTGRES_URL environment variable is not set');
     }
-    const sql = neon(connectionString);
-    _db = drizzle(sql, { schema });
-    console.log('[Database] Connected to Neon Postgres');
+    const pool = new Pool({ connectionString });
+    _db = drizzle(pool, { schema });
+    console.log('[Database] Connected to Neon Postgres (WebSocket)');
   }
   return _db;
 }

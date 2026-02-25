@@ -119,6 +119,26 @@ export interface CashGameSummary {
 }
 
 // ============================================
+// FLEX GAME TYPES
+// ============================================
+
+export type FlexGameStatus = 'open' | 'running' | 'closed' | 'expired';
+
+export interface FlexGameSummary {
+  id: string;
+  name: string;
+  status: FlexGameStatus;
+  maxPlayers: number;
+  playerCount: number;
+  smallBlind: number;
+  bigBlind: number;
+  minBuyIn: number;
+  maxBuyIn: number;
+  turnTimerHours: number;
+  isYourTurn: boolean;
+}
+
+// ============================================
 // TABLE TYPES
 // ============================================
 
@@ -133,6 +153,7 @@ export interface Table {
   version: number;
   tournament_id: string | null;
   cash_game_id?: string | null;
+  flex_game_id?: string | null;
   table_number: number;
   max_seats: number;
   dealer_seat: number;
@@ -388,6 +409,7 @@ export interface TableState {
   id: string;
   tournamentId: string | null;
   cashGameId?: string | null;
+  flexGameId?: string | null;
   tableNumber: number;
   maxSeats: 6 | 9;
   status: TableStatus;

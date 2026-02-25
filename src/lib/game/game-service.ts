@@ -7,7 +7,7 @@
 
 import Pusher from 'pusher';
 import { getDb } from '@/lib/db';
-import { tableRepo, handRepo, eventRepo, tournamentRepo, cashGameRepo } from '@/lib/db/repositories';
+import { tableRepo, handRepo, eventRepo, tournamentRepo, cashGameRepo, flexGameRepo } from '@/lib/db/repositories';
 import { awardTournamentPrizes } from './tournament-service';
 import { generateId, now } from '@/lib/db/transaction';
 import { hands, tablePlayers, tables } from '@/lib/db/schema';
@@ -705,17 +705,17 @@ async function maybeStartNewHand(tableId: string): Promise<{ started: boolean; h
     return { started: false, hand: null };
   }
 
-  const isCashGame = !!table.cashGameId;
+  const isCashOrFlex = !!table.cashGameId || !!table.flexGameId;
 
   // Get players with chips (not eliminated and stack > 0)
-  const activePlayers = isCashGame
+  const activePlayers = isCashOrFlex
     ? players.filter((p) => p.stack > 0 && p.status !== 'sitting_out')
     : players.filter((p) => !['eliminated', 'sitting_out'].includes(p.status) && p.stack > 0);
   console.log(`[maybeStartNewHand] Active players (stack > 0, not eliminated):`,
     activePlayers.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
 
-  // Tournament winner - only 1 player with chips remaining (skip for cash games)
-  if (!isCashGame && activePlayers.length === 1) {
+  // Tournament winner - only 1 player with chips remaining (skip for cash/flex games)
+  if (!isCashOrFlex && activePlayers.length === 1) {
     const winner = activePlayers[0];
     console.log(`[maybeStartNewHand] Tournament winner detected: ${winner.name}`);
 
@@ -831,11 +831,14 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
   const table = await tableRepo.getTable(tableId);
   if (!table) throw new Error('Table not found');
 
-  // Get timer settings from tournament or cash game
+  // Get timer settings from tournament, cash game, or flex game
   let turnTimerSeconds: number | null = null;
   if (table.cashGameId) {
     const cashGame = await cashGameRepo.getCashGame(table.cashGameId);
     turnTimerSeconds = cashGame?.turnTimerSeconds ?? 30;
+  } else if (table.flexGameId) {
+    const flexGame = await flexGameRepo.getFlexGame(table.flexGameId);
+    turnTimerSeconds = flexGame?.turnTimerSeconds ?? 86400;
   } else if (table.tournamentId) {
     const tournament = await tournamentRepo.getTournament(table.tournamentId);
     turnTimerSeconds = tournament?.turnTimerSeconds ?? null;
@@ -1230,10 +1233,10 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
 
         // Re-fetch players AFTER pot is awarded to get accurate stack values
         const { players: playersAfterPot, table: refreshedTable } = await tableRepo.getTableWithPlayers(tableId);
-        const isCashGameAwarding = !!refreshedTable?.cashGameId;
+        const isCashOrFlexAwarding = !!refreshedTable?.cashGameId || !!refreshedTable?.flexGameId;
 
-        // Mark eliminated players (those with 0 chips) — skip for cash games
-        if (!isCashGameAwarding) {
+        // Mark eliminated players (those with 0 chips) — skip for cash/flex games
+        if (!isCashOrFlexAwarding) {
           for (const p of playersAfterPot) {
             if (p.stack === 0 && p.status !== 'eliminated') {
               await db.update(tablePlayers).set({ status: 'eliminated', eliminatedAt: now() }).where(eq(tablePlayers.id, p.id));
@@ -1243,12 +1246,12 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
 
         // Re-fetch to get updated statuses after elimination
         const { players: refreshedAfterElim } = await tableRepo.getTableWithPlayers(tableId);
-        const remainingPlayers = isCashGameAwarding
+        const remainingPlayers = isCashOrFlexAwarding
           ? refreshedAfterElim.filter((p) => p.stack > 0 && p.status !== 'sitting_out')
           : refreshedAfterElim.filter((p) => p.stack > 0 && p.status !== 'eliminated');
 
         // Tournament winner - only one player left (skip for cash games)
-        if (!isCashGameAwarding && remainingPlayers.length === 1 && refreshedTable) {
+        if (!isCashOrFlexAwarding && remainingPlayers.length === 1 && refreshedTable) {
           const tournamentWinner = remainingPlayers[0];
           console.log(`[submitAction] Tournament winner: ${tournamentWinner.name}`);
 
@@ -1402,12 +1405,15 @@ async function setNextActor(handId: string, tableId: string, seatIndex: number):
 
   console.log(`[setNextActor] hand=${handId} → seat ${seatIndex}`);
 
-  // Get timer from tournament or cash game
+  // Get timer from tournament, cash game, or flex game
   const [table] = await db.select().from(tables).where(eq(tables.id, tableId));
   let turnTimerSeconds: number | null | undefined = null;
   if (table?.cashGameId) {
     const cashGame = await cashGameRepo.getCashGame(table.cashGameId);
     turnTimerSeconds = cashGame?.turnTimerSeconds ?? 30;
+  } else if (table?.flexGameId) {
+    const flexGame = await flexGameRepo.getFlexGame(table.flexGameId);
+    turnTimerSeconds = flexGame?.turnTimerSeconds ?? 86400;
   } else if (table?.tournamentId) {
     const tournament = await tournamentRepo.getTournament(table.tournamentId);
     turnTimerSeconds = tournament?.turnTimerSeconds;
@@ -1438,6 +1444,25 @@ async function setNextActor(handId: string, tableId: string, seatIndex: number):
     .update(hands)
     .set({ currentActorSeat: seatIndex, actionDeadline: deadline })
     .where(eq(hands.id, handId));
+
+  // Flex game: notify next player and touch activity
+  if (table?.flexGameId) {
+    const [nextPlayer] = await db
+      .select()
+      .from(tablePlayers)
+      .where(and(eq(tablePlayers.tableId, tableId), eq(tablePlayers.seatIndex, seatIndex)));
+
+    if (nextPlayer) {
+      await flexGameRepo.touchActivity(table.flexGameId);
+
+      if (pusher) {
+        pusher.trigger(`private-player-${nextPlayer.playerId}`, 'YOUR_TURN', {
+          flexGameId: table.flexGameId,
+          tableId,
+        }).catch((err: Error) => console.error('[setNextActor] Failed to send YOUR_TURN:', err));
+      }
+    }
+  }
 }
 
 async function advanceToNextPhase(
