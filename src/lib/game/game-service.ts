@@ -847,9 +847,10 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
 
   // Get active players (must have chips and not be eliminated/sitting out)
   const { players } = await tableRepo.getTableWithPlayers(tableId);
-  const activePlayers = players.filter((p) =>
-    !['eliminated', 'sitting_out'].includes(p.status) && p.stack > 0
-  );
+  const isCashOrFlex = !!table.cashGameId || !!table.flexGameId;
+  const activePlayers = isCashOrFlex
+    ? players.filter((p) => p.stack > 0 && p.status !== 'sitting_out')
+    : players.filter((p) => !['eliminated', 'sitting_out'].includes(p.status) && p.stack > 0);
   console.log(`[startNewHand] Active players for new hand:`,
     activePlayers.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
 
@@ -1723,7 +1724,7 @@ async function completeHand(
 
   // Check for eliminated players and start next hand
   const { players, table } = await tableRepo.getTableWithPlayers(tableId);
-  const isCashGame = !!table?.cashGameId;
+  const isCashGame = !!table?.cashGameId || !!table?.flexGameId;
   console.log(`[completeHand] Players after fetching:`,
     players.map(p => ({ seat: p.seatIndex, stack: p.stack, status: p.status, name: p.name })));
 
