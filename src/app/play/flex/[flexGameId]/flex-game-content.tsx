@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { useChannel, useChannelEvent } from '@/hooks/usePusher';
 import { ArrowLeft, Users, Coins, DollarSign, LogOut, X, Clock } from 'lucide-react';
+import { ShareButton } from '@/components/ui/share-button';
 
 interface FlexGameDetails {
   id: string;
@@ -206,12 +207,18 @@ export default function FlexGameContent({
           >
             <ArrowLeft className="w-5 h-5 text-zinc-400" />
           </Link>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold text-white">{game.name}</h1>
             <p className="text-zinc-400">
               {game.smallBlind}/{game.bigBlind} Flex Game
             </p>
           </div>
+          <ShareButton
+            variant="compact"
+            url={`https://letsplay.poker/play/flex/${flexGameId}`}
+            title={game.name}
+            text={`Join my ${game.smallBlind}/${game.bigBlind} flex game on LetsPlay Poker! ${game.turnTimerHours}h per turn.`}
+          />
         </div>
 
         {/* Game Info Card */}

@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 import { useChannel, useChannelEvent } from '@/hooks/usePusher';
 import { ArrowLeft, Users, Coins, Clock, Check, Lock, Eye, EyeOff, X, Play, Vote, Crown, Timer } from 'lucide-react';
+import { ShareButton } from '@/components/ui/share-button';
 
 interface RegisteredPlayer {
   id: string;
@@ -404,12 +405,18 @@ export default function TournamentPage({
           >
             <ArrowLeft className="w-5 h-5 text-zinc-400" />
           </Link>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold text-white">{tournament.name}</h1>
             <p className="text-zinc-400">
               {tournament.maxPlayers}-player Sit & Go
             </p>
           </div>
+          <ShareButton
+            variant="compact"
+            url={`https://letsplay.poker/play/tournament/${tournamentId}`}
+            title={tournament.name}
+            text={`Join my ${tournament.maxPlayers}-player Sit & Go tournament on LetsPlay Poker!`}
+          />
         </div>
 
         {/* Tournament card */}
