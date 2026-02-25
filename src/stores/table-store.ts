@@ -8,6 +8,7 @@ import type {
   TableEvent,
 } from '@/lib/poker-engine-v2/types';
 import { parseCard } from '@/lib/card-utils';
+import { VOLUNTARY_ACTIONS } from '@/lib/action-utils';
 
 // Generate unique ID for optimistic actions
 function generateOptimisticId(): string {
@@ -66,6 +67,11 @@ function generateDeterministicEventId(event: TableEvent): string {
   }
 }
 
+// Enriched action record with street info for history
+export interface EnrichedActionRecord extends ActionRecord {
+  street: string;
+}
+
 // Snapshot of state needed for rollback
 interface StateSnapshot {
   seats: Seat[];
@@ -74,6 +80,8 @@ interface StateSnapshot {
   lastAction: ActionRecord | null;
   currentActorSeatIndex: number | null;
   validActions: ValidActions | null;
+  seatActions: Record<number, EnrichedActionRecord>;
+  actionHistory: EnrichedActionRecord[];
 }
 
 // Pending optimistic action
@@ -187,6 +195,11 @@ interface TableStoreState {
   // Maps seat index to the cards shown [card1 | null, card2 | null]
   shownCards: Record<number, [Card | null, Card | null]>;
 
+  // Per-seat last voluntary action (reset each street, derived from events)
+  seatActions: Record<number, EnrichedActionRecord>;
+  // Full action history for current hand (voluntary actions only)
+  actionHistory: EnrichedActionRecord[];
+
   // Actions
   setTableState: (state: TableState, heroSeatIndex: number, version?: number, lastEventId?: number, validActions?: ValidActions | null) => void;
   setValidActions: (validActions: ValidActions | null) => void;
@@ -252,6 +265,8 @@ const INITIAL_STATE = {
   appliedEventIds: new Set<string>(),
   lastSyncTimestamp: 0,
   shownCards: {},
+  seatActions: {},
+  actionHistory: [],
 };
 
 export const useTableStore = create<TableStoreState>((set, get) => ({
@@ -332,6 +347,8 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
       showdownResult: preserveShowdown ? current.showdownResult : (state.phase === 'showdown' ? current.showdownResult : null),
       // Use updated appliedEventIds with implied events
       appliedEventIds,
+      // Clear action tracking when hand changes
+      ...(state.handNumber !== current.handNumber ? { seatActions: {}, actionHistory: [] } : {}),
     });
   },
 
@@ -480,6 +497,8 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
               )
             : resetSeats,
           shownCards: {}, // Clear voluntarily shown cards for new hand
+          seatActions: {}, // Clear per-seat action indicators
+          actionHistory: [], // Clear action history log
         });
         break;
       }
@@ -501,9 +520,20 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
         break;
       }
 
-      case 'ACTION':
+      case 'ACTION': {
+        const enriched: EnrichedActionRecord = {
+          ...event.record,
+          street: state.phase,
+        };
+        const isVoluntary = VOLUNTARY_ACTIONS.has(event.record.action);
+
         set({
           lastAction: event.record,
+          // Track per-seat last action (voluntary only)
+          ...(isVoluntary ? {
+            seatActions: { ...state.seatActions, [event.record.seatIndex]: enriched },
+            actionHistory: [...state.actionHistory, enriched],
+          } : {}),
           // Update seat state based on action
           seats: state.seats.map((s) => {
             if (s.index !== event.record.seatIndex || !s.player) return s;
@@ -527,12 +557,14 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
           }),
         });
         break;
+      }
 
       case 'STREET_DEALT':
         set({
           phase: event.street as TableState['phase'],
           communityCards: event.cards,
           currentBet: 0,
+          seatActions: {}, // Reset per-seat indicators on new street
           // Reset hasActed for all players
           seats: state.seats.map((s) => ({
             ...s,
@@ -810,6 +842,8 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
       lastAction: state.lastAction,
       currentActorSeatIndex: state.currentActorSeatIndex,
       validActions: state.validActions,
+      seatActions: { ...state.seatActions },
+      actionHistory: [...state.actionHistory],
     };
 
     // Calculate optimistic changes to hero's seat
@@ -867,12 +901,23 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
       timestamp: Date.now(),
     };
 
+    // Build enriched record for action tracking
+    const enrichedRecord: EnrichedActionRecord = {
+      ...actionRecord,
+      street: state.phase,
+    };
+    const isVoluntary = VOLUNTARY_ACTIONS.has(actionRecord.action);
+
     set({
       pendingAction: { id: actionId, action, amount, seatIndex, previousState },
       seats: updatedSeats,
       lastAction: actionRecord,
       currentActorSeatIndex: null, // Clear while pending
       validActions: null,
+      ...(isVoluntary ? {
+        seatActions: { ...state.seatActions, [seatIndex]: enrichedRecord },
+        actionHistory: [...state.actionHistory, enrichedRecord],
+      } : {}),
     });
 
     return actionId;
@@ -898,6 +943,8 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
         lastAction: previousState.lastAction,
         currentActorSeatIndex: previousState.currentActorSeatIndex,
         validActions: previousState.validActions,
+        seatActions: previousState.seatActions,
+        actionHistory: previousState.actionHistory,
         pendingAction: null,
       });
     }

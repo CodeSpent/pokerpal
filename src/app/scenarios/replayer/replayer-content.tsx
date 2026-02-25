@@ -16,18 +16,10 @@ import {
   Coins,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { ACTION_COLORS } from "@/lib/action-utils";
 import { ParsedHand, HandHistoryAction } from "@/types/hand-history";
 import { SAMPLE_HANDS } from "@/data/sample-hands";
 import { useHandStore } from "@/stores/hand-store";
-
-const ACTION_COLORS: Record<string, string> = {
-  fold: "text-red-400",
-  check: "text-zinc-400",
-  call: "text-blue-400",
-  raise: "text-emerald-400",
-  "all-in": "text-amber-400",
-  bet: "text-emerald-400",
-};
 
 const POSITION_COLORS: Record<string, string> = {
   UTG: "bg-red-500",

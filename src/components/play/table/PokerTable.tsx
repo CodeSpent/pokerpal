@@ -1,10 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import { cn } from '@/lib/cn';
 import { useTableStore } from '@/stores/table-store';
 import { Seat } from './Seat';
 import { CommunityCards } from '../cards/CommunityCards';
+import { ActionHistoryDrawer } from './ActionHistoryDrawer';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ListOrdered } from 'lucide-react';
 
 interface PokerTableProps {
   className?: string;
@@ -62,7 +65,11 @@ export function PokerTable({ className }: PokerTableProps) {
     phase,
     showdownResult,
     shownCards,
+    seatActions,
+    actionHistory,
   } = useTableStore();
+
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Check if we're in a showdown/winner display phase
   const isShowdownPhase = phase === 'showdown' || phase === 'hand-complete' || phase === 'awarding';
@@ -106,6 +113,7 @@ export function PokerTable({ className }: PokerTableProps) {
                   bestCards: winnerData.bestCards,
                 } : undefined}
                 shownCards={shownCards[seat.index]}
+                seatAction={seatActions[seat.index] ?? null}
               />
             );
           })}
@@ -126,10 +134,20 @@ export function PokerTable({ className }: PokerTableProps) {
           size="md"
         />
 
-        {/* Phase indicator */}
+        {/* Phase indicator + action history toggle */}
         {phase !== 'waiting' && phase !== 'hand-complete' && (
-          <div className="text-[10px] text-text-muted/60 uppercase tracking-widest">
-            {phase}
+          <div className="flex items-center gap-2">
+            <div className="text-[10px] text-text-muted/60 uppercase tracking-widest">
+              {phase}
+            </div>
+            {actionHistory.length > 0 && (
+              <button
+                onClick={() => setIsDrawerOpen(true)}
+                className="w-6 h-6 flex items-center justify-center rounded-full bg-surface-secondary/60 border border-surface-tertiary/40 text-text-muted hover:text-text-primary transition-colors"
+              >
+                <ListOrdered className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )}
 
@@ -178,9 +196,13 @@ export function PokerTable({ className }: PokerTableProps) {
                 : undefined
             }
             tableId={tableId ?? undefined}
+            seatAction={seatActions[heroSeat.index] ?? null}
           />
         </div>
       )}
+
+      {/* Action history drawer */}
+      <ActionHistoryDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
     </div>
   );
 }

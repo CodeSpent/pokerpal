@@ -8,6 +8,8 @@ import { HoleCards } from '../cards/HoleCards';
 import { ShowCardsOverlay } from '../cards/ShowCardsOverlay';
 import { User, WifiOff } from 'lucide-react';
 import { useCardPeek } from '@/hooks/useCardPeek';
+import { ActionIndicator } from './ActionIndicator';
+import type { EnrichedActionRecord } from '@/stores/table-store';
 
 interface WinnerInfo {
   handRank: string;
@@ -30,6 +32,8 @@ interface SeatProps {
   shownCards?: [Card | null, Card | null];
   // Table ID for show cards API (hero only)
   tableId?: string;
+  // Last voluntary action for this seat (from seatActions store)
+  seatAction?: EnrichedActionRecord | null;
 }
 
 // Avatar with status ring
@@ -144,6 +148,7 @@ export function Seat({
   className,
   shownCards,
   tableId,
+  seatAction,
 }: SeatProps) {
   const { player, isDealer, isSmallBlind, isBigBlind, index } = seat;
 
@@ -194,6 +199,14 @@ export function Seat({
           className
         )}
       >
+        {/* Action indicator above main row */}
+        <ActionIndicator
+          isFolded={isFolded}
+          isAllIn={isAllIn}
+          seatAction={seatAction}
+          variant="hero"
+        />
+
         <div className="flex items-center gap-4">
           {/* Avatar with position badge */}
           <div className="relative">
@@ -244,15 +257,6 @@ export function Seat({
             </div>
           )}
         </div>
-
-        {/* All-in badge */}
-        {isAllIn && !isFolded && (
-          <div className="absolute top-2 right-2">
-            <span className="px-2 py-0.5 bg-action-foldMuted/60 text-red-300 text-[10px] font-semibold rounded border border-action-fold/30">
-              All In
-            </span>
-          </div>
-        )}
 
         {/* Winner info */}
         {isWinner && winnerInfo && (
@@ -337,16 +341,18 @@ export function Seat({
         </motion.div>
       )}
 
-      {/* Bet / All-in indicator — above cards so it's not obscured */}
-      {(player.currentBet > 0 || (isAllIn && !isFolded)) && (
+      {/* Action indicator — above cards */}
+      <ActionIndicator
+        isFolded={isFolded}
+        isAllIn={isAllIn}
+        seatAction={seatAction}
+        variant={variant as 'compact' | 'standard'}
+      />
+
+      {/* Bet chip — only when there's a bet and no action indicator already showing the amount */}
+      {player.currentBet > 0 && !isFolded && !seatAction && !isAllIn && (
         <div className="flex justify-center mb-1">
-          {isAllIn && !isFolded ? (
-            <span className="px-1.5 py-0.5 bg-action-foldMuted/60 text-red-300 text-[9px] font-semibold rounded border border-action-fold/30">
-              All In
-            </span>
-          ) : (
-            <BetChip amount={player.currentBet} />
-          )}
+          <BetChip amount={player.currentBet} />
         </div>
       )}
 
