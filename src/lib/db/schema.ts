@@ -439,6 +439,28 @@ export const rangeSets = pgTable(
 );
 
 // =============================================================================
+// Push Subscriptions (Web Push)
+// =============================================================================
+
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: text('id').primaryKey(),
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_push_subscriptions_endpoint').on(table.endpoint),
+    index('idx_push_subscriptions_player').on(table.playerId),
+  ]
+);
+
+// =============================================================================
 // Migrations Tracking
 // =============================================================================
 
@@ -493,6 +515,9 @@ export type NewCashGame = typeof cashGames.$inferInsert;
 
 export type FlexGame = typeof flexGames.$inferSelect;
 export type NewFlexGame = typeof flexGames.$inferInsert;
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

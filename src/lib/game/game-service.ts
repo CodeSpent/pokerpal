@@ -9,6 +9,7 @@ import Pusher from 'pusher';
 import { getDb } from '@/lib/db';
 import { tableRepo, handRepo, eventRepo, tournamentRepo, cashGameRepo, flexGameRepo } from '@/lib/db/repositories';
 import { awardTournamentPrizes } from './tournament-service';
+import { sendPushToPlayer } from '@/lib/push/send-push';
 import { generateId, now } from '@/lib/db/transaction';
 import { hands, tablePlayers, tables } from '@/lib/db/schema';
 import type { Hand, TablePlayer, Table, Event } from '@/lib/db/schema';
@@ -1461,6 +1462,12 @@ async function setNextActor(handId: string, tableId: string, seatIndex: number):
           tableId,
         }).catch((err: Error) => console.error('[setNextActor] Failed to send YOUR_TURN:', err));
       }
+
+      sendPushToPlayer(nextPlayer.playerId, {
+        title: "It's your turn!",
+        body: 'Your opponents are waiting for your action.',
+        url: `/play/flex/${table.flexGameId}/table/${tableId}`,
+      }).catch((err) => console.error('[setNextActor] Push failed:', err));
     }
   }
 }

@@ -13,6 +13,7 @@ import type { Action } from '@/types/poker';
 import { Wifi, WifiOff, LogOut, Plus, Clock } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { useChannel, useChannelEvent } from '@/hooks/usePusher';
+import { PushNotificationPrompt } from '@/components/pwa/push-notification-prompt';
 
 export default function FlexTableContent({
   params,
@@ -236,6 +237,7 @@ export default function FlexTableContent({
 
   return (
     <div className="h-[calc(100dvh-11.5rem)] flex flex-col bg-surface-primary overflow-hidden">
+      <PushNotificationPrompt />
       {/* Compact Header */}
       <header className="h-12 shrink-0 flex items-center justify-between px-4 bg-surface-secondary border-b border-surface-tertiary">
         <div className="flex items-center gap-3">
