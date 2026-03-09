@@ -6,11 +6,12 @@ import { cn } from '@/lib/cn';
 import { useTableStore } from '@/stores/table-store';
 import { useTableChannel } from '@/hooks/useTableChannel';
 import { useSyncManager } from '@/hooks/useSyncManager';
-import { PokerTable, TurnTimer } from '@/components/play/table';
+import { PokerTable, TurnTimer, GameTimeline } from '@/components/play/table';
 import { ActionPanel } from '@/components/play/controls';
 import { submitAction, triggerTimeout } from '@/services/tableActionService';
 import type { Action } from '@/types/poker';
-import { Wifi, WifiOff, LogOut, Plus } from 'lucide-react';
+import { Wifi, WifiOff, LogOut, Plus, FileText, ScrollText } from 'lucide-react';
+import Link from 'next/link';
 import { useToast } from '@/components/ui/toast';
 import { useChannel, useChannelEvent } from '@/hooks/usePusher';
 
@@ -45,6 +46,7 @@ export default function CashTableContent({
   const [rebuyAmount, setRebuyAmount] = useState(0);
   const [gameInfo, setGameInfo] = useState<{ minBuyIn: number; maxBuyIn: number; status: string } | null>(null);
   const [gameClosed, setGameClosed] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const { error: showError, toast } = useToast();
 
   const { refreshState } = useSyncManager({ tableId, isConnected });
@@ -193,6 +195,13 @@ export default function CashTableContent({
   const canRebuy = heroStack !== null && heroStack === 0 && !gameClosed;
   const isBetweenHands = phase === 'waiting' || phase === 'hand-complete';
 
+  // Auto-show rebuy modal when hero has 0 chips between hands
+  useEffect(() => {
+    if (canRebuy && isBetweenHands && gameInfo && !showRebuyModal) {
+      setShowRebuyModal(true);
+    }
+  }, [canRebuy, isBetweenHands, gameInfo]);
+
   if (isLoading) {
     return (
       <div className="h-[calc(100dvh-11.5rem)] flex items-center justify-center bg-surface-primary">
@@ -260,6 +269,25 @@ export default function CashTableContent({
           {heroSeatIndex !== null && (
             <TurnTimer expiresAt={turnExpiresAt} isUnlimited={turnIsUnlimited} />
           )}
+
+          {/* Timeline button */}
+          <button
+            onClick={() => setShowTimeline(true)}
+            className="text-text-muted hover:text-text-primary"
+            title="Game Timeline"
+          >
+            <ScrollText className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Audit log link */}
+          <Link
+            href={`/play/audit/${tableId}`}
+            target="_blank"
+            className="text-text-muted hover:text-text-primary"
+            title="Audit Log"
+          >
+            <FileText className="w-3.5 h-3.5" />
+          </Link>
 
           {/* Rebuy button */}
           {(canRebuy || (isBetweenHands && heroStack !== null && heroStack < (gameInfo?.maxBuyIn ?? 0))) && !gameClosed && (
@@ -354,6 +382,13 @@ export default function CashTableContent({
           </div>
         </div>
       )}
+
+      {/* Game Timeline */}
+      <GameTimeline
+        isOpen={showTimeline}
+        onClose={() => setShowTimeline(false)}
+        tableId={tableId}
+      />
     </div>
   );
 }

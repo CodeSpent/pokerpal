@@ -95,6 +95,13 @@ export default function FlexGameContent({
     fetchGameDetails();
   }, [flexGameId]);
 
+  // If player is already seated, redirect to table
+  useEffect(() => {
+    if (isSeated && tableId) {
+      router.push(`/play/flex/${flexGameId}/table/${tableId}`);
+    }
+  }, [isSeated, tableId, flexGameId, router]);
+
   const handleJoin = async () => {
     if (!game) return;
     setIsJoining(true);
@@ -190,9 +197,7 @@ export default function FlexGameContent({
     );
   }
 
-  // If player is already seated, redirect to table
   if (isSeated && tableId) {
-    router.push(`/play/flex/${flexGameId}/table/${tableId}`);
     return null;
   }
 

@@ -138,6 +138,13 @@ export async function GET(
         toCall,
       });
 
+      // Check if all opponents are all-in
+      const INACTIVE = ['folded', 'sitting_out', 'eliminated'];
+      const opponents = players.filter(
+        (p) => p.seatIndex !== playerSeat.seatIndex && !INACTIVE.includes(p.status)
+      );
+      const allOpponentsAllIn = opponents.length > 0 && opponents.every((p) => p.status === 'all_in');
+
       validActions = getValidActions({
         status: playerSeat.status,
         currentBet: hand.currentBet,
@@ -146,6 +153,7 @@ export async function GET(
         minRaise: hand.minRaise,
         bigBlind: table.bigBlind,
         canCheck: toCall === 0,
+        allOpponentsAllIn,
       });
     }
 
@@ -164,6 +172,26 @@ export async function GET(
       };
     }
 
+    // Compute pauseReason when in waiting phase (no active hand)
+    let pauseReason: string | null = null;
+    if (phase === 'waiting' && table.status !== 'complete') {
+      const isCashOrFlex = !!table.cashGameId || !!table.flexGameId;
+      const activePlayers = isCashOrFlex
+        ? players.filter((p) => p.stack > 0 && p.status !== 'sitting_out')
+        : players.filter((p) => !['eliminated', 'sitting_out'].includes(p.status) && p.stack > 0);
+
+      if (players.length < 2) {
+        pauseReason = 'Waiting for more players to join';
+      } else if (activePlayers.length < 2) {
+        const bustedCount = players.filter((p) => p.stack === 0).length;
+        if (bustedCount > 0) {
+          pauseReason = 'Waiting for players to buy in';
+        } else {
+          pauseReason = 'Waiting for players to be ready';
+        }
+      }
+    }
+
     // Telemetry: detect "no one's turn" state during active hand
     if (hand && !['complete', 'showdown', 'awarding', 'hand-complete', 'dealing'].includes(hand.phase) && hand.currentActorSeat === null) {
       console.warn(`[GET /api/tables] NO_ACTOR_BUG: hand=${hand.id} phase=${hand.phase} currentActorSeat=null during betting phase. Players:`, players.map(p => `s${p.seatIndex}:${p.status}:bet${p.currentBet}:stack${p.stack}`).join(', '));
@@ -174,6 +202,7 @@ export async function GET(
       heroSeatIndex: playerSeat.seatIndex,
       validActions,
       tournamentWinner,
+      pauseReason,
     });
   } catch (error) {
     console.error('Error getting table:', error);

@@ -191,6 +191,9 @@ interface TableStoreState {
   // Last sync timestamp for staleness detection
   lastSyncTimestamp: number;
 
+  // Pause reason (why no new hand is starting)
+  pauseReason: string | null;
+
   // Voluntarily shown cards (after folding)
   // Maps seat index to the cards shown [card1 | null, card2 | null]
   shownCards: Record<number, [Card | null, Card | null]>;
@@ -201,7 +204,7 @@ interface TableStoreState {
   actionHistory: EnrichedActionRecord[];
 
   // Actions
-  setTableState: (state: TableState, heroSeatIndex: number, version?: number, lastEventId?: number, validActions?: ValidActions | null) => void;
+  setTableState: (state: TableState, heroSeatIndex: number, version?: number, lastEventId?: number, validActions?: ValidActions | null, pauseReason?: string | null) => void;
   setValidActions: (validActions: ValidActions | null) => void;
   setHeroHoleCards: (cards: [Card, Card]) => void;
   applyEvent: (event: TableEvent) => void;
@@ -264,6 +267,7 @@ const INITIAL_STATE = {
   pendingAction: null,
   appliedEventIds: new Set<string>(),
   lastSyncTimestamp: 0,
+  pauseReason: null,
   shownCards: {},
   seatActions: {},
   actionHistory: [],
@@ -272,7 +276,7 @@ const INITIAL_STATE = {
 export const useTableStore = create<TableStoreState>((set, get) => ({
   ...INITIAL_STATE,
 
-  setTableState: (state, heroSeatIndex, version, lastEventId, validActions) => {
+  setTableState: (state, heroSeatIndex, version, lastEventId, validActions, pauseReason) => {
     // Extract hero's hole cards from their seat
     const heroSeat = state.seats.find(s => s.index === heroSeatIndex);
     const heroHoleCards = heroSeat?.player?.holeCards || null;
@@ -345,6 +349,8 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
       validActions: validActions ?? null,
       // Preserve showdown result if still in showdown, else clear on phase change
       showdownResult: preserveShowdown ? current.showdownResult : (state.phase === 'showdown' ? current.showdownResult : null),
+      // Pause reason from server
+      pauseReason: pauseReason ?? null,
       // Use updated appliedEventIds with implied events
       appliedEventIds,
       // Clear action tracking when hand changes
@@ -584,14 +590,14 @@ export const useTableStore = create<TableStoreState>((set, get) => ({
 
       case 'TURN_STARTED': {
         const turnEvent = event as {
-          seatIndex: number;
+          seatIndex: number | null;
           expiresAt?: number | null;
           isUnlimited?: boolean;
           validActions?: ValidActions;
         };
 
         // Apply validActions only if this is hero's turn, otherwise clear them
-        const isHeroTurn = turnEvent.seatIndex === state.heroSeatIndex;
+        const isHeroTurn = turnEvent.seatIndex !== null && turnEvent.seatIndex === state.heroSeatIndex;
 
         set({
           currentActorSeatIndex: turnEvent.seatIndex,

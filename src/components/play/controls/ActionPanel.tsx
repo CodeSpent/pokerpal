@@ -47,10 +47,11 @@ export function ActionPanel({
   const callAmount = validActions?.callAmount ?? 0;
   const canBet = validActions?.canBet ?? false;
   const minBetTotal = validActions?.minBet ?? bigBlind;
-  const maxBetTotal = heroStack;
+  const heroCurrentBet = heroSeat?.player?.currentBet || 0;
+  const maxBetTotal = heroStack + heroCurrentBet;
   const canRaise = validActions?.canRaise ?? false;
   const minRaiseTotal = validActions?.minRaise ?? bigBlind;
-  const maxRaiseTotal = validActions?.maxRaise ?? heroStack;
+  const maxRaiseTotal = validActions?.maxRaise ?? (heroStack + heroCurrentBet);
 
   // Reset amounts when turn changes
   useEffect(() => {

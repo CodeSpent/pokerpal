@@ -6,12 +6,13 @@ import { cn } from '@/lib/cn';
 import { useTableStore } from '@/stores/table-store';
 import { useTableChannel } from '@/hooks/useTableChannel';
 import { useSyncManager } from '@/hooks/useSyncManager';
-import { PokerTable, TurnTimer } from '@/components/play/table';
+import { PokerTable, TurnTimer, GameTimeline } from '@/components/play/table';
 import { ActionPanel } from '@/components/play/controls';
 import { TournamentCompleteOverlay } from '@/components/play/overlays';
 import { submitAction, triggerTimeout } from '@/services/tableActionService';
 import type { Action } from '@/types/poker';
-import { Wifi, WifiOff, Clock } from 'lucide-react';
+import { Wifi, WifiOff, Clock, FileText, ScrollText } from 'lucide-react';
+import Link from 'next/link';
 import { useToast } from '@/components/ui/toast';
 
 export default function TablePage({
@@ -43,6 +44,7 @@ export default function TablePage({
 
   const { isConnected } = useTableChannel(tableId);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const { error: showError, toast } = useToast();
 
   // Consolidated sync manager - handles all polling and state sync
@@ -189,6 +191,25 @@ export default function TablePage({
           {heroSeatIndex !== null && (
             <TurnTimer expiresAt={turnExpiresAt} isUnlimited={turnIsUnlimited} />
           )}
+
+          {/* Timeline button */}
+          <button
+            onClick={() => setShowTimeline(true)}
+            className="text-text-muted hover:text-text-primary"
+            title="Game Timeline"
+          >
+            <ScrollText className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Audit log link */}
+          <Link
+            href={`/play/audit/${tableId}`}
+            target="_blank"
+            className="text-text-muted hover:text-text-primary"
+            title="Audit Log"
+          >
+            <FileText className="w-3.5 h-3.5" />
+          </Link>
         </div>
       </header>
 
@@ -205,6 +226,13 @@ export default function TablePage({
 
       {/* Tournament complete overlay */}
       <TournamentCompleteOverlay tournamentId={tournamentId} />
+
+      {/* Game Timeline */}
+      <GameTimeline
+        isOpen={showTimeline}
+        onClose={() => setShowTimeline(false)}
+        tableId={tableId}
+      />
     </div>
   );
 }

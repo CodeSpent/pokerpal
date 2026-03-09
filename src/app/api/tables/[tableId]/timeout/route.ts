@@ -97,6 +97,11 @@ export async function POST(
           // Compute validActions for the next actor
           const nextActorPlayer = updatedPlayers.find(p => p.seatIndex === hand.currentActorSeat);
           const toCall = Math.max(0, hand.currentBet - (nextActorPlayer?.currentBet || 0));
+          const INACTIVE_TIMEOUT = ['folded', 'sitting_out', 'eliminated'];
+          const opponentsTimeout = nextActorPlayer
+            ? updatedPlayers.filter(p => p.seatIndex !== nextActorPlayer.seatIndex && !INACTIVE_TIMEOUT.includes(p.status))
+            : [];
+          const allOppAllInTimeout = opponentsTimeout.length > 0 && opponentsTimeout.every(p => p.status === 'all_in');
           const validActionsForActor = nextActorPlayer
             ? getValidActions({
                 status: nextActorPlayer.status,
@@ -106,6 +111,7 @@ export async function POST(
                 minRaise: hand.minRaise,
                 bigBlind: updatedTable.bigBlind,
                 canCheck: toCall === 0,
+                allOpponentsAllIn: allOppAllInTimeout,
               })
             : null;
 

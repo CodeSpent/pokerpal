@@ -143,6 +143,9 @@ function executeAction(
 
   // Get valid actions
   const toCall = Math.max(0, hand.current_bet - player.current_bet);
+  const INACTIVE_SA = ['folded', 'sitting_out', 'eliminated'];
+  const opponentsSA = players.filter(p => p.seat_index !== player.seat_index && !INACTIVE_SA.includes(p.status));
+  const allOppAllInSA = opponentsSA.length > 0 && opponentsSA.every(p => p.status === 'all_in');
   const validActions = getValidActions({
     status: player.status,
     currentBet: hand.current_bet,
@@ -151,6 +154,7 @@ function executeAction(
     minRaise: hand.min_raise,
     bigBlind: table.big_blind,
     canCheck: toCall === 0,
+    allOpponentsAllIn: allOppAllInSA,
   });
 
   // Debug logging for action validation

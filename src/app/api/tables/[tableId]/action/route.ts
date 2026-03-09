@@ -156,6 +156,12 @@ export async function POST(
         (p) => p.seatIndex === actionResult.nextActorSeat
       );
       const toCall = Math.max(0, actionResult.hand.currentBet - (nextActorPlayer?.currentBet || 0));
+      // Check if all opponents of the next actor are all-in
+      const INACTIVE = ['folded', 'sitting_out', 'eliminated'];
+      const opponentsOfNextActor = actionResult.players.filter(
+        (p) => p.seatIndex !== actionResult.nextActorSeat && !INACTIVE.includes(p.status)
+      );
+      const allOpponentsAllIn = opponentsOfNextActor.length > 0 && opponentsOfNextActor.every((p) => p.status === 'all_in');
       const validActionsForNextActor = nextActorPlayer
         ? getValidActions({
             status: nextActorPlayer.status,
@@ -165,6 +171,7 @@ export async function POST(
             minRaise: actionResult.hand.minRaise,
             bigBlind: table.bigBlind,
             canCheck: toCall === 0,
+            allOpponentsAllIn,
           })
         : null;
 
@@ -178,9 +185,18 @@ export async function POST(
       });
     }
 
-    // Log when no TURN_STARTED is being broadcast for an active hand
+    // When no one has the turn (all-in runout), broadcast TURN_STARTED with null
+    // so the client clears currentActorSeatIndex and triggers all-in polling
     if (actionResult.nextActorSeat === null && !actionResult.isHandComplete) {
-      console.warn(`[action/route] hand=${handId} phase=${actionResult.hand.phase} — NOT broadcasting TURN_STARTED (nextActorSeat=null, isHandComplete=${actionResult.isHandComplete}). DB currentActorSeat=${actionResult.hand.currentActorSeat}`);
+      console.log(`[action/route] hand=${handId} phase=${actionResult.hand.phase} — broadcasting TURN_STARTED with null seat (all-in or no actor)`);
+      events.push({
+        type: 'TURN_STARTED',
+        eventId: `turn-${handId}-${handVersion}-null`,
+        seatIndex: null,
+        expiresAt: null,
+        isUnlimited: true,
+        validActions: null,
+      });
     }
 
     // Note: HAND_COMPLETE is NOT broadcast here for showdowns

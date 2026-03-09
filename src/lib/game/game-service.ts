@@ -182,6 +182,15 @@ function getActivePlayers<T extends { status: string }>(players: T[]): T[] {
   return players.filter((p) => !INACTIVE_STATUSES.includes(p.status as PlayerStatus));
 }
 
+/** Check if all opponents (other active players) are all-in */
+function areAllOpponentsAllIn<T extends { seatIndex: number; status: string }>(
+  players: T[],
+  heroSeatIndex: number
+): boolean {
+  const opponents = getActivePlayers(players).filter((p) => p.seatIndex !== heroSeatIndex);
+  return opponents.length > 0 && opponents.every((p) => p.status === 'all_in');
+}
+
 function getPlayersWhoCanAct<T extends { status: string }>(players: T[]): T[] {
   return players.filter((p) => ['waiting', 'active', 'acted'].includes(p.status));
 }
@@ -368,8 +377,9 @@ export function getValidActions(params: {
   minRaise: number;
   bigBlind: number;
   canCheck: boolean;
+  allOpponentsAllIn?: boolean;
 }): ValidActions {
-  const { status, currentBet, playerBet, playerStack, minRaise, bigBlind } = params;
+  const { status, currentBet, playerBet, playerStack, minRaise, bigBlind, allOpponentsAllIn } = params;
   const result: ValidActions = {
     canFold: false,
     canCheck: false,
@@ -390,14 +400,17 @@ export function getValidActions(params: {
   const toCall = currentBet - playerBet;
   if (toCall <= 0) {
     result.canCheck = true;
-    if (playerStack > 0) {
+    // Don't offer bet when all opponents are all-in (no one can match)
+    if (playerStack > 0 && !allOpponentsAllIn) {
       result.canBet = true;
-      result.minBet = Math.min(bigBlind, playerStack);
+      // minBet is absolute (total bet for the round), consistent with raise amounts
+      result.minBet = Math.min(playerBet + bigBlind, playerBet + playerStack);
     }
   } else {
     result.canCall = true;
     result.callAmount = Math.min(toCall, playerStack);
-    if (playerStack > toCall) {
+    // Don't offer raise when all opponents are all-in (no one can match)
+    if (playerStack > toCall && !allOpponentsAllIn) {
       const minRaiseAbsolute = currentBet + minRaise;
       const maxRaiseAbsolute = playerBet + playerStack;
       if (minRaiseAbsolute <= maxRaiseAbsolute) {
@@ -764,6 +777,7 @@ async function maybeStartNewHand(tableId: string): Promise<{ started: boolean; h
             minRaise: hand.minRaise,
             bigBlind: table.bigBlind,
             canCheck: toCall === 0,
+            allOpponentsAllIn: areAllOpponentsAllIn(players, firstActorPlayer.seatIndex),
           })
         : null;
 
@@ -930,6 +944,10 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
     actionType: 'post_sb',
     amount: sbAmount,
     phase: 'preflop',
+    stackBefore: sbPlayer.stack,
+    stackAfter: sbPlayer.stack - sbAmount,
+    potBefore: 0,
+    potAfter: sbAmount,
   });
   totalPot += sbAmount;
 
@@ -949,6 +967,10 @@ export async function startNewHand(tableId: string, handNumber: number): Promise
     actionType: 'post_bb',
     amount: bbAmount,
     phase: 'preflop',
+    stackBefore: bbPlayer.stack,
+    stackAfter: bbPlayer.stack - bbAmount,
+    potBefore: sbAmount,
+    potAfter: sbAmount + bbAmount,
   });
   totalPot += bbAmount;
 
@@ -1072,6 +1094,7 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
 
     // Get valid actions
     const toCall = Math.max(0, hand.currentBet - player.currentBet);
+    const opponentsAllIn = areAllOpponentsAllIn(players, player.seatIndex);
     const validActions = getValidActions({
       status: player.status,
       currentBet: hand.currentBet,
@@ -1080,6 +1103,7 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
       minRaise: hand.minRaise,
       bigBlind: table.bigBlind,
       canCheck: toCall === 0,
+      allOpponentsAllIn: opponentsAllIn,
     });
 
     // Normalize actions
@@ -1161,6 +1185,10 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
       actionType: normalizedAction,
       amount: actualAmount,
       phase: hand.phase,
+      stackBefore: player.stack,
+      stackAfter: newStack,
+      potBefore: hand.pot,
+      potAfter: newPot,
     });
 
     // Get updated players
@@ -1296,6 +1324,7 @@ export async function submitAction(params: SubmitActionParams): Promise<ApiResul
                       minRaise: newHand.minRaise,
                       bigBlind: tableForHand.bigBlind,
                       canCheck: toCall === 0,
+                      allOpponentsAllIn: areAllOpponentsAllIn(playersForHand, firstActorPlayer.seatIndex),
                     })
                   : null;
 
@@ -1808,6 +1837,7 @@ async function completeHand(
                 minRaise: newHand.minRaise,
                 bigBlind: refreshedTable.bigBlind,
                 canCheck: toCall === 0,
+                allOpponentsAllIn: areAllOpponentsAllIn(updatedPlayers, firstActorPlayer.seatIndex),
               })
             : null;
 

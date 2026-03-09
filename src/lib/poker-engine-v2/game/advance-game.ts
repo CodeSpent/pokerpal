@@ -313,6 +313,11 @@ function maybeStartNewHand(
       // Compute validActions for the first actor
       const firstActorPlayer = players.find(p => p.seat_index === hand.current_actor_seat);
       const toCall = Math.max(0, hand.current_bet - (firstActorPlayer?.current_bet || 0));
+      const INACTIVE_ADV = ['folded', 'sitting_out', 'eliminated'];
+      const opponentsAdv = firstActorPlayer
+        ? players.filter(p => p.seat_index !== firstActorPlayer.seat_index && !INACTIVE_ADV.includes(p.status))
+        : [];
+      const allOppAllInAdv = opponentsAdv.length > 0 && opponentsAdv.every(p => p.status === 'all_in');
       const validActionsForActor = firstActorPlayer
         ? getValidActions({
             status: firstActorPlayer.status,
@@ -322,6 +327,7 @@ function maybeStartNewHand(
             minRaise: hand.min_raise,
             bigBlind: table.big_blind,
             canCheck: toCall === 0,
+            allOpponentsAllIn: allOppAllInAdv,
           })
         : null;
 

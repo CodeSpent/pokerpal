@@ -100,6 +100,7 @@ export interface ValidActionsParams {
   minRaise: number;
   bigBlind: number;
   canCheck: boolean;
+  allOpponentsAllIn?: boolean;
 }
 
 export interface ValidActions {
@@ -151,8 +152,8 @@ export function getValidActions(params: ValidActionsParams): ValidActions {
     // No bet to call - can check
     result.canCheck = true;
 
-    // Can bet if we have chips
-    if (playerStack > 0) {
+    // Can bet if we have chips (but not when all opponents are all-in)
+    if (playerStack > 0 && !params.allOpponentsAllIn) {
       result.canBet = true;
       result.minBet = Math.min(bigBlind, playerStack);
     }
@@ -161,8 +162,8 @@ export function getValidActions(params: ValidActionsParams): ValidActions {
     result.canCall = true;
     result.callAmount = Math.min(toCall, playerStack);
 
-    // Can raise if we have more than enough to call
-    if (playerStack > toCall) {
+    // Can raise if we have more than enough to call (but not when all opponents are all-in)
+    if (playerStack > toCall && !params.allOpponentsAllIn) {
       // Express as ABSOLUTE totals (what player's total bet would be)
       const minRaiseAbsolute = currentBet + minRaise;
       const maxRaiseAbsolute = playerBet + playerStack;

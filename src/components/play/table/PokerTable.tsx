@@ -67,6 +67,7 @@ export function PokerTable({ className }: PokerTableProps) {
     shownCards,
     seatActions,
     actionHistory,
+    pauseReason,
   } = useTableStore();
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -163,6 +164,23 @@ export function PokerTable({ className }: PokerTableProps) {
               <div className="flex items-center gap-2 bg-surface-secondary/80 px-4 py-2 rounded-full border border-surface-tertiary/40">
                 <div className="w-3 h-3 border border-accent-goldMuted/60 border-t-transparent rounded-full animate-spin" />
                 <span className="text-text-muted text-sm">Next hand...</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Game paused overlay */}
+        <AnimatePresence>
+          {phase === 'waiting' && pauseReason && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 flex items-center justify-center bg-surface-primary/40 rounded-xl"
+            >
+              <div className="flex flex-col items-center gap-1.5 bg-surface-secondary/80 px-5 py-3 rounded-xl border border-amber-500/30">
+                <span className="text-amber-400 text-xs font-semibold uppercase tracking-wider">Paused</span>
+                <span className="text-text-muted text-sm">{pauseReason}</span>
               </div>
             </motion.div>
           )}

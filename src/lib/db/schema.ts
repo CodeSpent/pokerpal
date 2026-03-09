@@ -371,6 +371,10 @@ export const actions = pgTable(
     amount: integer('amount').notNull().default(0),
     phase: text('phase').notNull(),
     sequence: integer('sequence').notNull(),
+    stackBefore: integer('stack_before'),
+    stackAfter: integer('stack_after'),
+    potBefore: integer('pot_before'),
+    potAfter: integer('pot_after'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
   (table) => [index('idx_actions_hand').on(table.handId)]

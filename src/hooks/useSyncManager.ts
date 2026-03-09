@@ -43,7 +43,8 @@ export function useSyncManager({ tableId, isConnected }: SyncManagerOptions) {
           data.heroSeatIndex,
           data.table.version,
           undefined,
-          data.validActions
+          data.validActions,
+          data.pauseReason
         );
         // Set tournament winner from HTTP response (important for page refresh after tournament ends)
         if (data.tournamentWinner) {

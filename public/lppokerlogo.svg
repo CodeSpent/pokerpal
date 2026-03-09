@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 512 512"
+   width="512"
+   height="512"
+   version="1.1"
+   id="svg29"
+   sodipodi:docname="lppokerlogo.svg"
+   inkscape:version="1.4.2 (ebf0e940, 2025-05-08)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview29"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="0.80499963"
+     inkscape:cx="327.32934"
+     inkscape:cy="316.14921"
+     inkscape:window-width="1512"
+     inkscape:window-height="916"
+     inkscape:window-x="0"
+     inkscape:window-y="38"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg29" />
+  <defs
+     id="defs6">
+    <linearGradient
+       id="teal1"
+       x1="0%"
+       y1="0%"
+       x2="100%"
+       y2="100%">
+      <stop
+         offset="0%"
+         stop-color="#5EEAD4"
+         id="stop1" />
+      <stop
+         offset="100%"
+         stop-color="#0F766E"
+         id="stop2" />
+    </linearGradient>
+    <linearGradient
+       id="teal2"
+       x1="100%"
+       y1="0%"
+       x2="0%"
+       y2="100%">
+      <stop
+         offset="0%"
+         stop-color="#2DD4BF"
+         id="stop3" />
+      <stop
+         offset="100%"
+         stop-color="#115E59"
+         id="stop4" />
+    </linearGradient>
+    <linearGradient
+       id="tealRadial"
+       x1="50%"
+       y1="0%"
+       x2="50%"
+       y2="100%">
+      <stop
+         offset="0%"
+         stop-color="#2DD4BF"
+         id="stop5" />
+      <stop
+         offset="100%"
+         stop-color="#0D9488"
+         id="stop6" />
+    </linearGradient>
+  </defs>
+  <!-- ===== BASE DISC ===== -->
+  <circle
+     cx="256"
+     cy="256"
+     r="252"
+     fill="#0A0A16"
+     id="circle6" />
+  <!-- ===== OUTER TEAL BAND (thinner, refined) ===== -->
+  <circle
+     cx="256"
+     cy="256"
+     r="248"
+     fill="none"
+     stroke="url(#teal1)"
+     stroke-width="14"
+     id="circle7" />
+  <!-- Notch cuts through the band — 12 evenly spaced -->
+  <g
+     fill="#0A0A16"
+     id="g18">
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(0 256 256)"
+       id="rect7" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(30 256 256)"
+       id="rect8" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(60 256 256)"
+       id="rect9" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(90 256 256)"
+       id="rect10" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(120 256 256)"
+       id="rect11" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(150 256 256)"
+       id="rect12" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(180 256 256)"
+       id="rect13" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(210 256 256)"
+       id="rect14" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(240 256 256)"
+       id="rect15" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(270 256 256)"
+       id="rect16" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(300 256 256)"
+       id="rect17" />
+    <rect
+       x="252"
+       y="0"
+       width="8"
+       height="40"
+       transform="rotate(330 256 256)"
+       id="rect18" />
+  </g>
+  <!-- Inner edge of band — crisp line -->
+  <circle
+     cx="256"
+     cy="256"
+     r="238"
+     fill="none"
+     stroke="#2DD4BF"
+     stroke-width="0.75"
+     opacity="0.35"
+     id="circle18" />
+  <!-- ===== SEGMENTED MID RING ===== -->
+  <circle
+     cx="256"
+     cy="256"
+     r="210"
+     fill="none"
+     stroke="url(#teal2)"
+     stroke-width="2.5"
+     stroke-dasharray="90 20"
+     stroke-dashoffset="37"
+     opacity="0.4"
+     id="circle19" />
+  <!-- Fine hairline ring -->
+  <circle
+     cx="256"
+     cy="256"
+     r="185"
+     fill="none"
+     stroke="#2DD4BF"
+     stroke-width="0.5"
+     opacity="0.2"
+     id="circle20" />
+  <!-- ===== CENTER HEXAGON ===== -->
+  <!-- Outer hex -->
+  <polygon
+     points="256,138 358.2,197 358.2,315 256,374 153.8,315 153.8,197"
+     fill="none"
+     stroke="url(#tealRadial)"
+     stroke-width="2"
+     opacity="0.55"
+     id="polygon20" />
+  <!-- Inner hex fill -->
+  <polygon
+     points="256,155 347,208 347,304 256,357 165,304 165,208"
+     fill="#0D0D1C"
+     stroke="url(#teal1)"
+     stroke-width="0.75"
+     opacity="0.25"
+     id="polygon21" />
+  <!-- Crosshair — precision technical detail -->
+  <line
+     x1="256"
+     y1="150"
+     x2="256"
+     y2="362"
+     stroke="#2DD4BF"
+     stroke-width="0.5"
+     opacity="0.18"
+     id="line21" />
+  <line
+     x1="160"
+     y1="256"
+     x2="352"
+     y2="256"
+     stroke="#2DD4BF"
+     stroke-width="0.5"
+     opacity="0.18"
+     id="line22" />
+  <!-- Hex vertex tick marks -->
+  <g
+     stroke="#2DD4BF"
+     stroke-width="1"
+     opacity="0.25"
+     id="g28">
+    <line
+       x1="256"
+       y1="138"
+       x2="256"
+       y2="128"
+       id="line23" />
+    <line
+       x1="358.2"
+       y1="197"
+       x2="366"
+       y2="192.5"
+       id="line24" />
+    <line
+       x1="358.2"
+       y1="315"
+       x2="366"
+       y2="319.5"
+       id="line25" />
+    <line
+       x1="256"
+       y1="374"
+       x2="256"
+       y2="384"
+       id="line26" />
+    <line
+       x1="153.8"
+       y1="315"
+       x2="146"
+       y2="319.5"
+       id="line27" />
+    <line
+       x1="153.8"
+       y1="197"
+       x2="146"
+       y2="192.5"
+       id="line28" />
+  </g>
+  <!-- ===== CENTER TARGET ===== -->
+  <circle
+     cx="256"
+     cy="256"
+     r="30"
+     fill="none"
+     stroke="url(#teal1)"
+     stroke-width="1.5"
+     opacity="0.5"
+     id="circle28" />
+  <circle
+     cx="256"
+     cy="256"
+     r="10"
+     fill="#2DD4BF"
+     opacity="0.65"
+     id="circle29" />
+</svg>

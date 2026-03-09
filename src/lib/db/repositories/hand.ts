@@ -78,6 +78,18 @@ export async function getNextHandNumber(tableId: string): Promise<number> {
 }
 
 /**
+ * Get all hands for a table, ordered by hand number
+ */
+export async function getHandsByTable(tableId: string): Promise<Hand[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(hands)
+    .where(eq(hands.tableId, tableId))
+    .orderBy(asc(hands.handNumber));
+}
+
+/**
  * Create a new hand
  */
 export async function createHand(

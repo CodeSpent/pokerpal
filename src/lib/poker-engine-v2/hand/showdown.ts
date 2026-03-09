@@ -412,6 +412,11 @@ function completeHand(
 
           const firstActorPlayer = players.find(p => p.seat_index === newHand.current_actor_seat);
           const toCall = Math.max(0, newHand.current_bet - (firstActorPlayer?.current_bet || 0));
+          const INACTIVE_S = ['folded', 'sitting_out', 'eliminated'];
+          const opponentsOfFirst = firstActorPlayer
+            ? players.filter(p => p.seat_index !== firstActorPlayer.seat_index && !INACTIVE_S.includes(p.status))
+            : [];
+          const allOppAllIn = opponentsOfFirst.length > 0 && opponentsOfFirst.every(p => p.status === 'all_in');
           const validActionsForActor = firstActorPlayer
             ? getValidActions({
                 status: firstActorPlayer.status,
@@ -421,6 +426,7 @@ function completeHand(
                 minRaise: newHand.min_raise,
                 bigBlind: table.big_blind,
                 canCheck: toCall === 0,
+                allOpponentsAllIn: allOppAllIn,
               })
             : null;
 

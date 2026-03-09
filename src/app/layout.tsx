@@ -24,6 +24,9 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "LetsPlay Poker",
   },
+  icons: {
+    apple: "/icons/icon-192.png",
+  },
   robots: { index: true, follow: true },
   openGraph: {
     title: "LetsPlay Poker",

@@ -9,6 +9,7 @@ import { useChannel, useChannelEvent } from '@/hooks/usePusher';
 import { useSession } from 'next-auth/react';
 import { Plus, Users, Trophy, Coins, ArrowLeft, RefreshCw, Lock, Gift, DollarSign, Clock, Zap } from 'lucide-react';
 import { usePlayerStore } from '@/stores/player-store';
+import { InstallPrompt } from '@/components/pwa/install-prompt';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { TournamentSummary, CashGameSummary, FlexGameSummary } from '@/lib/poker-engine-v2/types';
 
@@ -160,6 +161,10 @@ export default function LobbyPage() {
 
   return (
     <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-6xl mx-auto">
+        <InstallPrompt />
+      </div>
+
       {/* Header */}
       <div className="max-w-6xl mx-auto mb-8">
         <div className="flex items-center gap-3 mb-6">
@@ -515,7 +520,7 @@ function CashGameCard({
               : 'bg-zinc-500/20 text-zinc-400'
           )}
         >
-          {game.status}
+          {game.status.charAt(0).toUpperCase() + game.status.slice(1)}
         </span>
       </div>
 
@@ -610,7 +615,7 @@ function FlexGameCard({
               : 'bg-zinc-500/20 text-zinc-400'
           )}
         >
-          {game.status}
+          {game.status.charAt(0).toUpperCase() + game.status.slice(1)}
         </span>
       </div>
 

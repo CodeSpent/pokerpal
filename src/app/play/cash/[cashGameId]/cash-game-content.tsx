@@ -95,6 +95,13 @@ export default function CashGameContent({
     fetchGameDetails();
   }, [cashGameId]);
 
+  // If player is already seated, redirect to table
+  useEffect(() => {
+    if (isSeated && tableId) {
+      router.push(`/play/cash/${cashGameId}/table/${tableId}`);
+    }
+  }, [isSeated, tableId, cashGameId, router]);
+
   const handleJoin = async () => {
     if (!game) return;
     setIsJoining(true);
@@ -184,9 +191,7 @@ export default function CashGameContent({
     );
   }
 
-  // If player is already seated, redirect to table
   if (isSeated && tableId) {
-    router.push(`/play/cash/${cashGameId}/table/${tableId}`);
     return null;
   }
 

@@ -9,6 +9,7 @@ import { flexGameRepo, tableRepo, chipTxRepo } from '@/lib/db/repositories';
 import { tablePlayers, tables, hands } from '@/lib/db/schema';
 import { generateId, now } from '@/lib/db/transaction';
 import { getPusher, channels, flexGameEvents } from '@/lib/pusher-server';
+import { submitAction } from '@/lib/game/game-service';
 import { eq, and, ne } from 'drizzle-orm';
 
 // =============================================================================
@@ -236,15 +237,35 @@ export async function leaveFlexGame(
     .from(hands)
     .where(and(eq(hands.tableId, table.id), ne(hands.phase, 'complete')));
 
+  // If there's an active hand and the player hasn't already folded, auto-fold them
   if (activeHand && !['folded', 'eliminated', 'sitting_out'].includes(tp.status)) {
-    throw new Error('Cannot leave during an active hand');
+    // If it's their turn, submit a fold action
+    if (activeHand.currentActorSeat === tp.seatIndex) {
+      await submitAction({
+        tableId: table.id,
+        playerId,
+        action: 'fold',
+        amount: 0,
+        bypassExpiry: true,
+      });
+    } else {
+      // Not their turn — mark as folded so the game skips them
+      await db
+        .update(tablePlayers)
+        .set({ status: 'folded' })
+        .where(and(eq(tablePlayers.tableId, table.id), eq(tablePlayers.playerId, playerId)));
+    }
   }
 
-  if (tp.stack > 0) {
+  // Re-fetch player to get updated stack (pot may have been awarded after fold)
+  const updatedTp = await tableRepo.getPlayerAtTable(table.id, playerId);
+  const cashOutStack = updatedTp?.stack ?? tp.stack;
+
+  if (cashOutStack > 0) {
     await chipTxRepo.recordTransaction({
       playerId,
       type: 'flex_cash_out',
-      amount: tp.stack,
+      amount: cashOutStack,
       flexGameId,
       description: `Cash out from ${game.name}`,
     });
@@ -261,7 +282,25 @@ export async function leaveFlexGame(
     }).catch((err) => console.error('[leaveFlexGame] Pusher error:', err));
   }
 
-  return { cashedOut: tp.stack };
+  // Check if no players remain — auto-close the game
+  const remainingPlayers = await db
+    .select()
+    .from(tablePlayers)
+    .where(eq(tablePlayers.tableId, table.id));
+
+  if (remainingPlayers.length === 0) {
+    console.log(`[leaveFlexGame] No players remaining in flex game ${flexGameId}, auto-closing`);
+    await flexGameRepo.closeFlexGame(flexGameId);
+    await db.update(tables).set({ status: 'complete' }).where(eq(tables.id, table.id));
+
+    if (pusher) {
+      pusher.trigger(channels.flexGame(flexGameId), flexGameEvents.FLEX_GAME_CLOSED, {
+        flexGameId,
+      }).catch((err) => console.error('[leaveFlexGame] Pusher error:', err));
+    }
+  }
+
+  return { cashedOut: cashOutStack };
 }
 
 // =============================================================================
